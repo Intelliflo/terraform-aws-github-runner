@@ -1,9 +1,11 @@
 import { Octokit } from '@octokit/rest';
 import { PassThrough } from 'stream';
-import request from 'request';
 import { S3 } from 'aws-sdk';
 import AWS from 'aws-sdk';
-import yn from 'yn';
+import axios from 'axios';
+import { logger as rootLogger } from './logger';
+
+const logger = rootLogger.getChildLogger();
 
 const versionKey = 'name';
 
@@ -23,7 +25,7 @@ async function getCachedVersion(s3: S3, cacheObject: CacheObject): Promise<strin
     const versions = objectTagging.TagSet?.filter((t: S3.Tag) => t.Key === versionKey);
     return versions.length === 1 ? versions[0].Value : undefined;
   } catch (e) {
-    console.debug('No tags found');
+    logger.debug('No tags found');
     return undefined;
   }
 }
@@ -32,7 +34,8 @@ interface ReleaseAsset {
   downloadUrl: string;
 }
 
-async function getLinuxReleaseAsset(
+async function getReleaseAsset(
+  runnerOs = 'linux',
   runnerArch = 'x64',
   fetchPrereleaseBinaries = false,
 ): Promise<ReleaseAsset | undefined> {
@@ -49,51 +52,67 @@ async function getLinuxReleaseAsset(
   const latestReleaseIndex = assetsList.data.findIndex((a) => a.prerelease === false);
 
   let asset = undefined;
-  if (fetchPrereleaseBinaries && latestPrereleaseIndex < latestReleaseIndex) {
+  if (fetchPrereleaseBinaries && latestPrereleaseIndex != -1 && latestPrereleaseIndex < latestReleaseIndex) {
     asset = assetsList.data[latestPrereleaseIndex];
   } else if (latestReleaseIndex != -1) {
     asset = assetsList.data[latestReleaseIndex];
   } else {
+    logger.warn('Cannot find either a release or pre release.');
     return undefined;
   }
-  const linuxAssets = asset.assets?.filter((a) => a.name?.includes(`actions-runner-linux-${runnerArch}-`));
 
-  return linuxAssets?.length === 1
-    ? { name: linuxAssets[0].name, downloadUrl: linuxAssets[0].browser_download_url }
-    : undefined;
+  const releaseVersion = asset.tag_name.replace('v', '');
+  const assets = asset.assets?.filter((a: { name?: string }) =>
+    a.name?.includes(`actions-runner-${runnerOs}-${runnerArch}-${releaseVersion}.`),
+  );
+
+  return assets?.length === 1 ? { name: assets[0].name, downloadUrl: assets[0].browser_download_url } : undefined;
 }
 
 async function uploadToS3(s3: S3, cacheObject: CacheObject, actionRunnerReleaseAsset: ReleaseAsset): Promise<void> {
   const writeStream = new PassThrough();
-  s3.upload({
-    Bucket: cacheObject.bucket,
-    Key: cacheObject.key,
-    Tagging: versionKey + '=' + actionRunnerReleaseAsset.name,
-    Body: writeStream,
-  }).promise();
+  const writePromise = s3
+    .upload({
+      Bucket: cacheObject.bucket,
+      Key: cacheObject.key,
+      Tagging: versionKey + '=' + actionRunnerReleaseAsset.name,
+      Body: writeStream,
+    })
+    .promise();
 
-  await new Promise<void>((resolve, reject) => {
-    console.debug('Start downloading %s and uploading to S3.', actionRunnerReleaseAsset.name);
-    request
-      .get(actionRunnerReleaseAsset.downloadUrl)
-      .pipe(writeStream)
-      .on('finish', () => {
-        console.info(`The new distribution is uploaded to S3.`);
-        resolve();
+  logger.debug('Start downloading %s and uploading to S3.', actionRunnerReleaseAsset.name);
+
+  const readPromise = new Promise<void>((resolve, reject) => {
+    axios
+      .request<NodeJS.ReadableStream>({
+        method: 'get',
+        url: actionRunnerReleaseAsset.downloadUrl,
+        responseType: 'stream',
       })
-      .on('error', (error) => {
-        reject(error);
-      });
-  }).catch((error) => {
-    console.error(`Exception: ${error}`);
+      .then((res) => {
+        res.data
+          .pipe(writeStream)
+
+          .on('finish', () => resolve())
+          .on('error', (error) => reject(error));
+      })
+      .catch((error) => reject(error));
   });
+
+  await Promise.all([readPromise, writePromise])
+    .then(() => logger.info(`The new distribution is uploaded to S3.`))
+    .catch((error) => {
+      logger.error(`Uploading of the new distribution to S3 failed: ${error}`);
+      throw error;
+    });
 }
 
-export const handle = async (): Promise<void> => {
+export async function sync(): Promise<void> {
   const s3 = new AWS.S3();
 
+  const runnerOs = process.env.GITHUB_RUNNER_OS || 'linux';
   const runnerArch = process.env.GITHUB_RUNNER_ARCHITECTURE || 'x64';
-  const fetchPrereleaseBinaries = yn(process.env.GITHUB_RUNNER_ALLOW_PRERELEASE_BINARIES, { default: false });
+  const fetchPrereleaseBinaries = JSON.parse(process.env.GITHUB_RUNNER_ALLOW_PRERELEASE_BINARIES || 'false');
 
   const cacheObject: CacheObject = {
     bucket: process.env.S3_BUCKET_NAME as string,
@@ -102,17 +121,16 @@ export const handle = async (): Promise<void> => {
   if (!cacheObject.bucket || !cacheObject.key) {
     throw Error('Please check all mandatory variables are set.');
   }
-
-  const actionRunnerReleaseAsset = await getLinuxReleaseAsset(runnerArch, fetchPrereleaseBinaries);
+  const actionRunnerReleaseAsset = await getReleaseAsset(runnerOs, runnerArch, fetchPrereleaseBinaries);
   if (actionRunnerReleaseAsset === undefined) {
     throw Error('Cannot find GitHub release asset.');
   }
 
   const currentVersion = await getCachedVersion(s3, cacheObject);
-  console.debug('latest: ' + currentVersion);
+  logger.debug('latest: ' + currentVersion);
   if (currentVersion === undefined || currentVersion != actionRunnerReleaseAsset.name) {
-    uploadToS3(s3, cacheObject, actionRunnerReleaseAsset);
+    await uploadToS3(s3, cacheObject, actionRunnerReleaseAsset);
   } else {
-    console.debug('Distribution is up-to-date, no action.');
+    logger.debug('Distribution is up-to-date, no action.');
   }
-};
+}

@@ -13,7 +13,7 @@ beforeEach(() => {
   nock.disableNetConnect();
 });
 
-describe('Test createGithubAuth', () => {
+describe('Test getParameterValue', () => {
   test('Gets parameters and returns string', async () => {
     // Arrange
     const parameterValue = 'test';
@@ -36,5 +36,23 @@ describe('Test createGithubAuth', () => {
 
     // Assert
     expect(result).toBe(parameterValue);
+  });
+
+  test('Gets invalid parameters and returns string', async () => {
+    // Arrange
+    const parameterName = 'invalid';
+    const output: GetParameterCommandOutput = {
+      $metadata: {
+        httpStatusCode: 200,
+      },
+    };
+
+    SSM.prototype.getParameter = jest.fn().mockResolvedValue(output);
+
+    // Act
+    const result = await getParameterValue(parameterName);
+
+    // Assert
+    expect(result).toBe(undefined);
   });
 });

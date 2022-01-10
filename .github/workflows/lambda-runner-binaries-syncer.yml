@@ -1,7 +1,4 @@
 name: Lambda Syncer
-env:
-  lambda_name: runner-binaries-syncer
-  lambda_path: modules/runner-binaries-syncer/lambdas/runner-binaries-syncer
 on:
   push:
     branches:
@@ -14,14 +11,17 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: node:12
+    container: node:14
     defaults:
       run:
-        working-directory: ${{ env.lambda_path }}
+        working-directory: modules/runner-binaries-syncer/lambdas/runner-binaries-syncer
+
     steps:
       - uses: actions/checkout@v2
       - name: Install dependencies
         run: yarn install
+      - name: Run prettier
+        run: yarn format-check
       - name: Run linter
         run: yarn lint
       - name: Run tests

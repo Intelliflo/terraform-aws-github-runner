@@ -1,10 +1,19 @@
 import { handle } from './webhook/handler';
-import { APIGatewayEvent, Context } from 'aws-lambda';
+import { APIGatewayEvent, Context, Callback } from 'aws-lambda';
+import { logger } from './webhook/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const githubWebhook = async (event: APIGatewayEvent, context: Context, callback: any): Promise<void> => {
-  const statusCode = await handle(event.headers, event.body);
-  callback(null, {
-    statusCode: statusCode,
-  });
+export interface Response {
+  statusCode: number;
+  body?: string;
+}
+
+export const githubWebhook = async (event: APIGatewayEvent, context: Context, callback: Callback): Promise<void> => {
+  logger.setSettings({ requestId: context.awsRequestId });
+  logger.debug(JSON.stringify(event));
+  try {
+    const response = await handle(event.headers, event.body as string);
+    callback(null, response);
+  } catch (e) {
+    callback(e as Error);
+  }
 };

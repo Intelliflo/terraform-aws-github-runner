@@ -35,8 +35,6 @@ variable "github_app" {
   type = object({
     key_base64     = string
     id             = string
-    client_id      = string
-    client_secret  = string
     webhook_secret = string
   })
 }
@@ -48,7 +46,13 @@ variable "scale_down_schedule_expression" {
 }
 
 variable "minimum_running_time_in_minutes" {
-  description = "The time an ec2 action runner should be running at minimum before terminated if non busy."
+  description = "The time an ec2 action runner should be running at minimum before terminated if not busy."
+  type        = number
+  default     = null
+}
+
+variable "runner_boot_time_in_minutes" {
+  description = "The minimum time for an EC2 runner to boot and register as a runner."
   type        = number
   default     = 5
 }
@@ -63,6 +67,12 @@ variable "runner_group_name" {
   description = "Name of the runner group."
   type        = string
   default     = "Default"
+}
+
+variable "scale_up_reserved_concurrent_executions" {
+  description = "Amount of reserved concurrent executions for the scale-up lambda function. A value of 0 disables lambda from being triggered and -1 removes any concurrency limitations."
+  type        = number
+  default     = 1
 }
 
 variable "webhook_lambda_zip" {
@@ -86,7 +96,7 @@ variable "runners_lambda_zip" {
 variable "runners_scale_up_lambda_timeout" {
   description = "Time out for the scale up lambda in seconds."
   type        = number
-  default     = 180
+  default     = 30
 }
 
 variable "runners_scale_down_lambda_timeout" {
@@ -107,6 +117,12 @@ variable "runner_binaries_syncer_lambda_timeout" {
   default     = 300
 }
 
+variable "runner_binaries_s3_sse_configuration" {
+  description = "Map containing server-side encryption configuration for runner-binaries S3 bucket."
+  type        = any
+  default     = {}
+}
+
 variable "role_permissions_boundary" {
   description = "Permissions boundary that will be added to the created roles."
   type        = string
@@ -125,16 +141,16 @@ variable "instance_profile_path" {
   default     = null
 }
 
-variable "instance_type" {
-  description = "[DEPRECATED] See instance_types."
-  type        = string
-  default     = "m5.large"
-}
-
 variable "runner_as_root" {
-  description = "Run the action runner under the root user."
+  description = "Run the action runner under the root user. Variable `runner_run_as` will be ingored."
   type        = bool
   default     = false
+}
+
+variable "runner_run_as" {
+  description = "Run the GitHub actions agent as user."
+  type        = string
+  default     = "ec2-user"
 }
 
 variable "runners_maximum_count" {
@@ -147,6 +163,12 @@ variable "kms_key_arn" {
   description = "Optional CMK Key ARN to be used for Parameter Store. This key must be in the current account."
   type        = string
   default     = null
+}
+
+variable "enabled_userdata" {
+  description = "Should the userdata script be enabled for the runner. Set this to false if you are using your own prebuilt AMI"
+  type        = bool
+  default     = true
 }
 
 variable "userdata_template" {
@@ -204,8 +226,7 @@ variable "block_device_mappings" {
 variable "ami_filter" {
   description = "List of maps used to create the AMI filter for the action runner AMI. By default amazon linux 2 is used."
   type        = map(list(string))
-
-  default = {}
+  default     = null
 }
 variable "ami_owners" {
   description = "The list of owners used to select the AMI of action runner instances."
@@ -279,32 +300,19 @@ variable "runner_log_files" {
     file_path        = string
     log_stream_name  = string
   }))
-  default = [
-    {
-      "log_group_name" : "messages",
-      "prefix_log_group" : true,
-      "file_path" : "/var/log/messages",
-      "log_stream_name" : "{instance_id}"
-    },
-    {
-      "log_group_name" : "user_data",
-      "prefix_log_group" : true,
-      "file_path" : "/var/log/user-data.log",
-      "log_stream_name" : "{instance_id}"
-    },
-    {
-      "log_group_name" : "runner",
-      "prefix_log_group" : true,
-      "file_path" : "/home/ec2-user/actions-runner/_diag/Runner_**.log",
-      "log_stream_name" : "{instance_id}"
-    }
-  ]
+  default = null
 }
 
 variable "ghes_url" {
   description = "GitHub Enterprise Server URL. Example: https://github.internal.co - DO NOT SET IF USING PUBLIC GITHUB"
   type        = string
   default     = null
+}
+
+variable "ghes_ssl_verify" {
+  description = "GitHub Enterprise SSL verification. Set to 'false' when custom certificate (chains) is used for GitHub Enterprise Server (insecure)."
+  type        = bool
+  default     = true
 }
 
 variable "lambda_subnet_ids" {
@@ -332,9 +340,40 @@ variable "runner_additional_security_group_ids" {
 }
 
 variable "market_options" {
-  description = "Market options for the action runner instances. Setting the value to `null` let the scaler create on-demand instances instead of spot instances."
+  description = "DEPCRECATED: Replaced by `instance_target_capacity_type`."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = anytrue([var.market_options == null])
+    error_message = "Deprecated, replaced by `instance_target_capacity_type`."
+  }
+}
+
+variable "instance_target_capacity_type" {
+  description = "Default lifecycle used for runner instances, can be either `spot` or `on-demand`."
   type        = string
   default     = "spot"
+  validation {
+    condition     = contains(["spot", "on-demand"], var.instance_target_capacity_type)
+    error_message = "The instance target capacity should be either spot or on-demand."
+  }
+}
+
+variable "instance_allocation_strategy" {
+  description = "The allocation strategy for spot instances. AWS recommends to use `capacity-optimized` however the AWS default is `lowest-price`."
+  type        = string
+  default     = "lowest-price"
+  validation {
+    condition     = contains(["lowest-price", "diversified", "capacity-optimized", "capacity-optimized-prioritized"], var.instance_allocation_strategy)
+    error_message = "The instance allocation strategy does not match the allowed values."
+  }
+}
+
+variable "instance_max_spot_price" {
+  description = "Max price price for spot intances per hour. This variable will be passed to the create fleet as max spot price for the fleet."
+  type        = string
+  default     = null
 }
 
 variable "volume_size" {
@@ -343,10 +382,21 @@ variable "volume_size" {
   default     = 30
 }
 
-variable "instance_types" {
-  description = "List of instance types for the action runner."
-  type        = set(string)
+variable "instance_type" {
+  description = "[DEPRECATED] See instance_types."
+  type        = string
   default     = null
+
+  validation {
+    condition     = anytrue([var.instance_type == null])
+    error_message = "Deprecated, replaced by `instance_types`."
+  }
+}
+
+variable "instance_types" {
+  description = "List of instance types for the action runner. Defaults are based on runner_os (amzn2 for linux and Windows Server Core for win)."
+  type        = list(string)
+  default     = ["m5.large", "c5.large"]
 }
 
 variable "repository_white_list" {
@@ -359,4 +409,147 @@ variable "delay_webhook_event" {
   description = "The number of seconds the event accepted by the webhook is invisible on the queue before the scale up lambda will receive the event."
   type        = number
   default     = 30
+}
+variable "job_queue_retention_in_seconds" {
+  description = "The number of seconds the job is held in the queue before it is purged"
+  type        = number
+  default     = 86400
+}
+variable "runner_egress_rules" {
+  description = "List of egress rules for the GitHub runner instances."
+  type = list(object({
+    cidr_blocks      = list(string)
+    ipv6_cidr_blocks = list(string)
+    prefix_list_ids  = list(string)
+    from_port        = number
+    protocol         = string
+    security_groups  = list(string)
+    self             = bool
+    to_port          = number
+    description      = string
+  }))
+  default = [{
+    cidr_blocks      = ["0.0.0.0/0"]
+    ipv6_cidr_blocks = ["::/0"]
+    prefix_list_ids  = null
+    from_port        = 0
+    protocol         = "-1"
+    security_groups  = null
+    self             = null
+    to_port          = 0
+    description      = null
+  }]
+}
+
+variable "log_type" {
+  description = "Logging format for lambda logging. Valid values are 'json', 'pretty', 'hidden'. "
+  type        = string
+  default     = "pretty"
+  validation {
+    condition = anytrue([
+      var.log_type == "json",
+      var.log_type == "pretty",
+      var.log_type == "hidden",
+    ])
+    error_message = "`log_type` value not valid. Valid values are 'json', 'pretty', 'hidden'."
+  }
+}
+
+variable "log_level" {
+  description = "Logging level for lambda logging. Valid values are  'silly', 'trace', 'debug', 'info', 'warn', 'error', 'fatal'."
+  type        = string
+  default     = "info"
+  validation {
+    condition = anytrue([
+      var.log_level == "silly",
+      var.log_level == "trace",
+      var.log_level == "debug",
+      var.log_level == "info",
+      var.log_level == "warn",
+      var.log_level == "error",
+      var.log_level == "fatal",
+    ])
+    error_message = "`log_level` value not valid. Valid values are 'silly', 'trace', 'debug', 'info', 'warn', 'error', 'fatal'."
+  }
+}
+
+variable "disable_check_wokflow_job_labels" {
+  description = "Disable the the check of workflow labels for received workflow job events."
+  type        = bool
+  default     = false
+}
+
+variable "runner_ec2_tags" {
+  description = "Map of tags that will be added to the launch template instance tag specificatons."
+  type        = map(string)
+  default     = {}
+}
+
+variable "runner_metadata_options" {
+  description = "Metadata options for the ec2 runner instances."
+  type        = map(any)
+  default = {
+    http_endpoint               = "enabled"
+    http_tokens                 = "optional"
+    http_put_response_hop_limit = 1
+  }
+}
+
+variable "enable_ephemeral_runners" {
+  description = "Enable ephemeral runners, runners will only be used once."
+  type        = bool
+  default     = false
+}
+
+variable "runner_os" {
+  description = "The Operating System to use for GitHub Actions Runners (linux,win)"
+  type        = string
+  default     = "linux"
+
+  validation {
+    condition     = contains(["linux", "win"], var.runner_os)
+    error_message = "Valid values for runner_os are (linux, win)."
+  }
+}
+
+variable "lambda_principals" {
+  description = "(Optional) add extra principals to the role created for execution of the lambda, e.g. for local testing."
+  type = list(object({
+    type        = string
+    identifiers = list(string)
+  }))
+  default = []
+}
+
+variable "fifo_build_queue" {
+  description = "Enable a FIFO queue to remain the order of events received by the webhook. Suggest to set to true for repo level runners."
+  type        = bool
+  default     = false
+}
+
+variable "redrive_build_queue" {
+  description = "Set options to attach (optional) a dead letter queue to the build queue, the queue between the webhook and the scale up lambda. You have the following options. 1. Disable by setting, `enalbed' to false. 2. Enable by setting `enabled` to `true`, `maxReceiveCount` to a number of max retries."
+  type = object({
+    enabled         = bool
+    maxReceiveCount = number
+  })
+  default = {
+    enabled         = false
+    maxReceiveCount = null
+  }
+  validation {
+    condition     = var.redrive_build_queue.enabled && var.redrive_build_queue.maxReceiveCount != null || !var.redrive_build_queue.enabled
+    error_message = "Ensure you have set the maxReceiveCount when enabled."
+  }
+}
+
+
+variable "runner_architecture" {
+  description = "The platform architecture of the runner instance_type."
+  type        = string
+  default     = "x64"
+  validation {
+    condition     = contains(["x64", "arm64"], var.runner_architecture)
+    error_message = "`runner_architecture` value not valid, valid values are: `x64` and `arm64`."
+  }
 }

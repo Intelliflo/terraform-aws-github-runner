@@ -26,6 +26,7 @@ describe('handler', () => {
     originalError = console.error;
     console.error = jest.fn();
     jest.clearAllMocks();
+    jest.resetAllMocks();
 
     const mockedGet = mocked(getParameterValue);
     mockedGet.mockResolvedValueOnce(GITHUB_APP_WEBHOOK_SECRET);
@@ -37,29 +38,32 @@ describe('handler', () => {
 
   it('returns 500 if no signature available', async () => {
     const resp = await handle({}, '');
-    expect(resp).toBe(500);
+    expect(resp.statusCode).toBe(500);
   });
 
   it('returns 401 if signature is invalid', async () => {
     const resp = await handle({ 'X-Hub-Signature': 'bbb' }, 'aaaa');
-    expect(resp).toBe(401);
+    expect(resp.statusCode).toBe(401);
   });
 
   describe('Test for workflowjob event: ', () => {
+    beforeEach(() => {
+      process.env.DISABLE_CHECK_WORKFLOW_JOB_LABELS = 'false';
+    });
     it('handles workflow job events', async () => {
       const event = JSON.stringify(workflowjob_event);
       const resp = await handle(
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job' },
         event,
       );
-      expect(resp).toBe(200);
+      expect(resp.statusCode).toBe(201);
       expect(sendActionRequest).toBeCalled();
     });
 
     it('does not handle other events', async () => {
       const event = JSON.stringify(workflowjob_event);
       const resp = await handle({ 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'push' }, event);
-      expect(resp).toBe(200);
+      expect(resp.statusCode).toBe(202);
       expect(sendActionRequest).not.toBeCalled();
     });
 
@@ -69,7 +73,7 @@ describe('handler', () => {
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job' },
         event,
       );
-      expect(resp).toBe(200);
+      expect(resp.statusCode).toBe(201);
       expect(sendActionRequest).not.toBeCalled();
     });
 
@@ -79,7 +83,7 @@ describe('handler', () => {
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job' },
         event,
       );
-      expect(resp).toBe(200);
+      expect(resp.statusCode).toBe(201);
       expect(sendActionRequest).not.toBeCalled();
     });
 
@@ -90,8 +94,19 @@ describe('handler', () => {
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job' },
         event,
       );
-      expect(resp).toBe(403);
+      expect(resp.statusCode).toBe(403);
       expect(sendActionRequest).not.toBeCalled();
+    });
+
+    it('handles workflow_job events without installation id', async () => {
+      const event = JSON.stringify({ ...workflowjob_event, installation: null });
+      process.env.REPOSITORY_WHITE_LIST = '["philips-labs/terraform-aws-github-runner"]';
+      const resp = await handle(
+        { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job' },
+        event,
+      );
+      expect(resp.statusCode).toBe(201);
+      expect(sendActionRequest).toBeCalled();
     });
 
     it('handles workflow_job events from whitelisted repositories', async () => {
@@ -101,7 +116,7 @@ describe('handler', () => {
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job' },
         event,
       );
-      expect(resp).toBe(200);
+      expect(resp.statusCode).toBe(201);
       expect(sendActionRequest).toBeCalled();
     });
 
@@ -118,7 +133,7 @@ describe('handler', () => {
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job' },
         event,
       );
-      expect(resp).toBe(200);
+      expect(resp.statusCode).toBe(201);
       expect(sendActionRequest).toBeCalled();
     });
 
@@ -135,12 +150,12 @@ describe('handler', () => {
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job' },
         event,
       );
-      expect(resp).toBe(200);
+      expect(resp.statusCode).toBe(201);
       expect(sendActionRequest).toBeCalled();
     });
 
-    it('Check runner a runner with multiple labels accept a job with a subset of labels.', async () => {
-      process.env.RUNNER_LABELS = '["test", "linux"]';
+    it('Check runner a self hosted runner will run a job marked with only self-hosted', async () => {
+      process.env.RUNNER_LABELS = '["test", "test2"]';
       const event = JSON.stringify({
         ...workflowjob_event,
         workflow_job: {
@@ -152,29 +167,46 @@ describe('handler', () => {
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job' },
         event,
       );
-      expect(resp).toBe(200);
+      expect(resp.statusCode).toBe(201);
       expect(sendActionRequest).toBeCalled();
     });
 
-    it('Check runner labels in mixed order', async () => {
-      process.env.RUNNER_LABELS = '["test", "linux"]';
+    it('Check runner labels for a strict job (2 labels should match)', async () => {
+      process.env.RUNNER_LABELS = '["test", "test2"]';
       const event = JSON.stringify({
         ...workflowjob_event,
         workflow_job: {
           ...workflowjob_event.workflow_job,
-          labels: ['self-hosted', 'linux', 'test'],
+          labels: ['self-hosted', 'linux', 'test', 'test2'],
         },
       });
       const resp = await handle(
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job' },
         event,
       );
-      expect(resp).toBe(200);
+      expect(resp.statusCode).toBe(201);
       expect(sendActionRequest).toBeCalled();
     });
 
+    it('Check event is accepted for disabled workflow check', async () => {
+      process.env.DISABLE_CHECK_WORKFLOW_JOB_LABELS = 'true';
+      process.env.RUNNER_LABELS = '["test", "no-check"]';
+      const event = JSON.stringify({
+        ...workflowjob_event,
+        workflow_job: {
+          ...workflowjob_event.workflow_job,
+          labels: ['self-hosted', 'linux', 'test', 'test2'],
+        },
+      });
+      const resp = await handle(
+        { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job' },
+        event,
+      );
+      expect(resp.statusCode).toBe(201);
+      expect(sendActionRequest).toBeCalled();
+    });
     it('Check not allowed runner label is declined', async () => {
-      process.env.RUNNER_LABELS = '["test", "linux"]';
+      process.env.RUNNER_LABELS = '["test"]';
       const event = JSON.stringify({
         ...workflowjob_event,
         workflow_job: {
@@ -186,7 +218,7 @@ describe('handler', () => {
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'workflow_job' },
         event,
       );
-      expect(resp).toBe(403);
+      expect(resp.statusCode).toBe(202);
       expect(sendActionRequest).not.toBeCalled();
     });
   });
@@ -198,7 +230,7 @@ describe('handler', () => {
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'check_run' },
         event,
       );
-      expect(resp).toBe(200);
+      expect(resp.statusCode).toBe(201);
       expect(sendActionRequest).toBeCalled();
     });
 
@@ -208,7 +240,7 @@ describe('handler', () => {
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'check_run' },
         event,
       );
-      expect(resp).toBe(200);
+      expect(resp.statusCode).toBe(201);
       expect(sendActionRequest).not.toBeCalled();
     });
 
@@ -218,7 +250,7 @@ describe('handler', () => {
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'check_run' },
         event,
       );
-      expect(resp).toBe(200);
+      expect(resp.statusCode).toBe(201);
       expect(sendActionRequest).not.toBeCalled();
     });
 
@@ -229,7 +261,7 @@ describe('handler', () => {
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'check_run' },
         event,
       );
-      expect(resp).toBe(403);
+      expect(resp.statusCode).toBe(403);
       expect(sendActionRequest).not.toBeCalled();
     });
 
@@ -240,7 +272,17 @@ describe('handler', () => {
         { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'check_run' },
         event,
       );
-      expect(resp).toBe(200);
+      expect(resp.statusCode).toBe(201);
+      expect(sendActionRequest).toBeCalled();
+    });
+
+    it('handles check_run events with no installation id.', async () => {
+      const event = JSON.stringify({ ...checkrun_event, installation: { id: null } });
+      const resp = await handle(
+        { 'X-Hub-Signature': await webhooks.sign(event), 'X-GitHub-Event': 'check_run' },
+        event,
+      );
+      expect(resp.statusCode).toBe(201);
       expect(sendActionRequest).toBeCalled();
     });
   });

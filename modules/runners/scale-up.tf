@@ -6,26 +6,33 @@ resource "aws_lambda_function" "scale_up" {
   source_code_hash               = var.lambda_s3_bucket == null ? filebase64sha256(local.lambda_zip) : null
   function_name                  = "${var.environment}-scale-up"
   role                           = aws_iam_role.scale_up.arn
-  handler                        = "index.scaleUp"
-  runtime                        = "nodejs12.x"
+  handler                        = "index.scaleUpHandler"
+  runtime                        = "nodejs14.x"
   timeout                        = var.lambda_timeout_scale_up
-  reserved_concurrent_executions = 1
+  reserved_concurrent_executions = var.scale_up_reserved_concurrent_executions
+  memory_size                    = 512
   tags                           = local.tags
 
   environment {
     variables = {
-      ENABLE_ORGANIZATION_RUNNERS             = var.enable_organization_runners
-      ENVIRONMENT                             = var.environment
-      GHES_URL                                = var.ghes_url
-      RUNNER_EXTRA_LABELS                     = var.runner_extra_labels
-      RUNNER_GROUP_NAME                       = var.runner_group_name
-      RUNNERS_MAXIMUM_COUNT                   = var.runners_maximum_count
-      LAUNCH_TEMPLATE_NAME                    = join(",", [for template in aws_launch_template.runner : template.name])
-      SUBNET_IDS                              = join(",", var.subnet_ids)
-      PARAMETER_GITHUB_APP_CLIENT_ID_NAME     = var.github_app_parameters.client_id.name
-      PARAMETER_GITHUB_APP_CLIENT_SECRET_NAME = var.github_app_parameters.client_secret.name
-      PARAMETER_GITHUB_APP_ID_NAME            = var.github_app_parameters.id.name
-      PARAMETER_GITHUB_APP_KEY_BASE64_NAME    = var.github_app_parameters.key_base64.name
+      ENABLE_ORGANIZATION_RUNNERS          = var.enable_organization_runners
+      ENVIRONMENT                          = var.environment
+      GHES_URL                             = var.ghes_url
+      LAUNCH_TEMPLATE_NAME                 = aws_launch_template.runner.name
+      LOG_LEVEL                            = var.log_level
+      LOG_TYPE                             = var.log_type
+      NODE_TLS_REJECT_UNAUTHORIZED         = var.ghes_url != null && !var.ghes_ssl_verify ? 0 : 1
+      PARAMETER_GITHUB_APP_ID_NAME         = var.github_app_parameters.id.name
+      PARAMETER_GITHUB_APP_KEY_BASE64_NAME = var.github_app_parameters.key_base64.name
+      RUNNER_EXTRA_LABELS                  = var.runner_extra_labels
+      RUNNER_GROUP_NAME                    = var.runner_group_name
+      RUNNERS_MAXIMUM_COUNT                = var.runners_maximum_count
+      SUBNET_IDS                           = join(",", var.subnet_ids)
+      ENABLE_EPHEMERAL_RUNNERS             = var.enable_ephemeral_runners
+      INSTANCE_TYPES                       = join(",", var.instance_types)
+      INSTANCE_TARGET_CAPACITY_TYPE        = var.instance_target_capacity_type
+      INSTANCE_MAX_SPOT_PRICE              = var.instance_max_spot_price
+      INSTANCE_ALLOCATION_STRATEGY         = var.instance_allocation_strategy
     }
   }
 
@@ -47,6 +54,7 @@ resource "aws_cloudwatch_log_group" "scale_up" {
 resource "aws_lambda_event_source_mapping" "scale_up" {
   event_source_arn = var.sqs_build_queue.arn
   function_name    = aws_lambda_function.scale_up.arn
+  batch_size       = 1
 }
 
 resource "aws_lambda_permission" "scale_runners_lambda" {
@@ -69,13 +77,11 @@ resource "aws_iam_role_policy" "scale_up" {
   name = "${var.environment}-lambda-scale-up-policy"
   role = aws_iam_role.scale_up.name
   policy = templatefile("${path.module}/policies/lambda-scale-up.json", {
-    arn_runner_instance_role     = aws_iam_role.runner.arn
-    sqs_arn                      = var.sqs_build_queue.arn
-    github_app_client_id_arn     = var.github_app_parameters.client_id.arn
-    github_app_client_secret_arn = var.github_app_parameters.client_secret.arn
-    github_app_id_arn            = var.github_app_parameters.id.arn
-    github_app_key_base64_arn    = var.github_app_parameters.key_base64.arn
-    kms_key_arn                  = local.kms_key_arn
+    arn_runner_instance_role  = aws_iam_role.runner.arn
+    sqs_arn                   = var.sqs_build_queue.arn
+    github_app_id_arn         = var.github_app_parameters.id.arn
+    github_app_key_base64_arn = var.github_app_parameters.key_base64.arn
+    kms_key_arn               = local.kms_key_arn
   })
 }
 

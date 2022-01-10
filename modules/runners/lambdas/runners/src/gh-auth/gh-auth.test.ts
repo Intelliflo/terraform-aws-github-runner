@@ -1,27 +1,23 @@
-import { createOctoClient, createGithubAuth } from './gh-auth';
+import { createOctoClient, createGithubAppAuth } from './gh-auth';
 import nock from 'nock';
 import { createAppAuth } from '@octokit/auth-app';
 
 import { StrategyOptions } from '@octokit/auth-app/dist-types/types';
-import { getParameterValue } from './ssm';
+import { getParameterValue } from './../aws/ssm';
 
 import { RequestInterface } from '@octokit/types';
 import { mock, MockProxy } from 'jest-mock-extended';
 import { request } from '@octokit/request';
 import { mocked } from 'ts-jest/utils';
 
-jest.mock('./ssm');
+jest.mock('./../aws/ssm');
 jest.mock('@octokit/auth-app');
 
 const cleanEnv = process.env;
 const ENVIRONMENT = 'dev';
 const GITHUB_APP_ID = '1';
-const GITHUB_APP_CLIENT_ID = '1';
-const GITHUB_APP_CLIENT_SECRET = 'client_secret';
 const PARAMETER_GITHUB_APP_ID_NAME = `/actions-runner/${ENVIRONMENT}/github_app_id`;
 const PARAMETER_GITHUB_APP_KEY_BASE64_NAME = `/actions-runner/${ENVIRONMENT}/github_app_key_base64`;
-const PARAMETER_GITHUB_APP_CLIENT_ID_NAME = `/actions-runner/${ENVIRONMENT}/github_app_client_id`;
-const PARAMETER_GITHUB_APP_CLIENT_SECRET_NAME = `/actions-runner/${ENVIRONMENT}/github_app_client_secret`;
 
 const mockedGet = mocked(getParameterValue);
 
@@ -31,12 +27,10 @@ beforeEach(() => {
   process.env = { ...cleanEnv };
   process.env.PARAMETER_GITHUB_APP_ID_NAME = PARAMETER_GITHUB_APP_ID_NAME;
   process.env.PARAMETER_GITHUB_APP_KEY_BASE64_NAME = PARAMETER_GITHUB_APP_KEY_BASE64_NAME;
-  process.env.PARAMETER_GITHUB_APP_CLIENT_ID_NAME = PARAMETER_GITHUB_APP_CLIENT_ID_NAME;
-  process.env.PARAMETER_GITHUB_APP_CLIENT_SECRET_NAME = PARAMETER_GITHUB_APP_CLIENT_SECRET_NAME;
   nock.disableNetConnect();
 });
 
-describe('Test createGithubAuth', () => {
+describe('Test createOctoClient', () => {
   test('Creates app client to GitHub public', async () => {
     // Arrange
     const token = '123456';
@@ -62,7 +56,7 @@ describe('Test createGithubAuth', () => {
   });
 });
 
-describe('Test createGithubAuth', () => {
+describe('Test createGithubAppAuth', () => {
   const mockedCreatAppAuth = createAppAuth as unknown as jest.Mock;
   const mockedDefaults = jest.spyOn(request, 'defaults');
   let mockedRequestInterface: MockProxy<RequestInterface>;
@@ -77,20 +71,19 @@ describe('Test createGithubAuth', () => {
     process.env.ENVIRONMENT = ENVIRONMENT;
   });
 
-  test('Creates auth object for public GitHub', async () => {
+  test('Creates auth object with line breaks in SSH key.', async () => {
     // Arrange
     const authOptions = {
       appId: parseInt(GITHUB_APP_ID),
-      privateKey: decryptedValue,
+      privateKey: `${decryptedValue}
+${decryptedValue}`,
       installationId,
-      clientId: GITHUB_APP_CLIENT_ID,
-      clientSecret: GITHUB_APP_CLIENT_SECRET,
     };
-    mockedGet
-      .mockResolvedValueOnce(GITHUB_APP_ID)
-      .mockResolvedValueOnce(b64)
-      .mockResolvedValueOnce(GITHUB_APP_CLIENT_ID)
-      .mockResolvedValueOnce(GITHUB_APP_CLIENT_SECRET);
+
+    const b64PrivateKeyWithLineBreaks = Buffer.from(decryptedValue + '\n' + decryptedValue, 'binary').toString(
+      'base64',
+    );
+    mockedGet.mockResolvedValueOnce(GITHUB_APP_ID).mockResolvedValueOnce(b64PrivateKeyWithLineBreaks);
 
     const mockedAuth = jest.fn();
     mockedAuth.mockResolvedValue({ token });
@@ -99,13 +92,34 @@ describe('Test createGithubAuth', () => {
     });
 
     // Act
-    const result = await createGithubAuth(installationId, authType);
+    await createGithubAppAuth(installationId);
+
+    // Assert
+    expect(mockedCreatAppAuth).toBeCalledTimes(1);
+    expect(mockedCreatAppAuth).toBeCalledWith(authOptions);
+  });
+
+  test('Creates auth object for public GitHub', async () => {
+    // Arrange
+    const authOptions = {
+      appId: parseInt(GITHUB_APP_ID),
+      privateKey: decryptedValue,
+      installationId,
+    };
+    mockedGet.mockResolvedValueOnce(GITHUB_APP_ID).mockResolvedValueOnce(b64);
+
+    const mockedAuth = jest.fn();
+    mockedAuth.mockResolvedValue({ token });
+    mockedCreatAppAuth.mockImplementation(() => {
+      return mockedAuth;
+    });
+
+    // Act
+    const result = await createGithubAppAuth(installationId);
 
     // Assert
     expect(getParameterValue).toBeCalledWith(PARAMETER_GITHUB_APP_ID_NAME);
     expect(getParameterValue).toBeCalledWith(PARAMETER_GITHUB_APP_KEY_BASE64_NAME);
-    expect(getParameterValue).toBeCalledWith(PARAMETER_GITHUB_APP_CLIENT_ID_NAME);
-    expect(getParameterValue).toBeCalledWith(PARAMETER_GITHUB_APP_CLIENT_SECRET_NAME);
 
     expect(mockedCreatAppAuth).toBeCalledTimes(1);
     expect(mockedCreatAppAuth).toBeCalledWith(authOptions);
@@ -126,16 +140,10 @@ describe('Test createGithubAuth', () => {
       appId: parseInt(GITHUB_APP_ID),
       privateKey: decryptedValue,
       installationId,
-      clientId: GITHUB_APP_CLIENT_ID,
-      clientSecret: GITHUB_APP_CLIENT_SECRET,
       request: mockedRequestInterface.defaults({ baseUrl: githubServerUrl }),
     };
 
-    mockedGet
-      .mockResolvedValueOnce(GITHUB_APP_ID)
-      .mockResolvedValueOnce(b64)
-      .mockResolvedValueOnce(GITHUB_APP_CLIENT_ID)
-      .mockResolvedValueOnce(GITHUB_APP_CLIENT_SECRET);
+    mockedGet.mockResolvedValueOnce(GITHUB_APP_ID).mockResolvedValueOnce(b64);
     const mockedAuth = jest.fn();
     mockedAuth.mockResolvedValue({ token });
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -144,13 +152,11 @@ describe('Test createGithubAuth', () => {
     });
 
     // Act
-    const result = await createGithubAuth(installationId, authType, githubServerUrl);
+    const result = await createGithubAppAuth(installationId, githubServerUrl);
 
     // Assert
     expect(getParameterValue).toBeCalledWith(PARAMETER_GITHUB_APP_ID_NAME);
     expect(getParameterValue).toBeCalledWith(PARAMETER_GITHUB_APP_KEY_BASE64_NAME);
-    expect(getParameterValue).toBeCalledWith(PARAMETER_GITHUB_APP_CLIENT_ID_NAME);
-    expect(getParameterValue).toBeCalledWith(PARAMETER_GITHUB_APP_CLIENT_SECRET_NAME);
 
     expect(mockedCreatAppAuth).toBeCalledTimes(1);
     expect(mockedCreatAppAuth).toBeCalledWith(authOptions);
@@ -172,16 +178,10 @@ describe('Test createGithubAuth', () => {
     const authOptions = {
       appId: parseInt(GITHUB_APP_ID),
       privateKey: decryptedValue,
-      clientId: GITHUB_APP_CLIENT_ID,
-      clientSecret: GITHUB_APP_CLIENT_SECRET,
       request: mockedRequestInterface.defaults({ baseUrl: githubServerUrl }),
     };
 
-    mockedGet
-      .mockResolvedValueOnce(GITHUB_APP_ID)
-      .mockResolvedValueOnce(b64)
-      .mockResolvedValueOnce(GITHUB_APP_CLIENT_ID)
-      .mockResolvedValueOnce(GITHUB_APP_CLIENT_SECRET);
+    mockedGet.mockResolvedValueOnce(GITHUB_APP_ID).mockResolvedValueOnce(b64);
     const mockedAuth = jest.fn();
     mockedAuth.mockResolvedValue({ token });
     mockedCreatAppAuth.mockImplementation(() => {
@@ -189,13 +189,11 @@ describe('Test createGithubAuth', () => {
     });
 
     // Act
-    const result = await createGithubAuth(installationId, authType, githubServerUrl);
+    const result = await createGithubAppAuth(installationId, githubServerUrl);
 
     // Assert
     expect(getParameterValue).toBeCalledWith(PARAMETER_GITHUB_APP_ID_NAME);
     expect(getParameterValue).toBeCalledWith(PARAMETER_GITHUB_APP_KEY_BASE64_NAME);
-    expect(getParameterValue).toBeCalledWith(PARAMETER_GITHUB_APP_CLIENT_ID_NAME);
-    expect(getParameterValue).toBeCalledWith(PARAMETER_GITHUB_APP_CLIENT_SECRET_NAME);
 
     expect(mockedCreatAppAuth).toBeCalledTimes(1);
     expect(mockedCreatAppAuth).toBeCalledWith(authOptions);

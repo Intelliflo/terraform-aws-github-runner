@@ -1,3 +1,10 @@
+locals {
+  # Windows Runners can take their sweet time to do anything
+  min_runtime_defaults = {
+    "win"   = 15
+    "linux" = 5
+  }
+}
 resource "aws_lambda_function" "scale_down" {
   s3_bucket         = var.lambda_s3_bucket != null ? var.lambda_s3_bucket : null
   s3_key            = var.runners_lambda_s3_key != null ? var.runners_lambda_s3_key : null
@@ -6,22 +13,24 @@ resource "aws_lambda_function" "scale_down" {
   source_code_hash  = var.lambda_s3_bucket == null ? filebase64sha256(local.lambda_zip) : null
   function_name     = "${var.environment}-scale-down"
   role              = aws_iam_role.scale_down.arn
-  handler           = "index.scaleDown"
-  runtime           = "nodejs12.x"
+  handler           = "index.scaleDownHandler"
+  runtime           = "nodejs14.x"
   timeout           = var.lambda_timeout_scale_down
   tags              = local.tags
+  memory_size       = 512
 
   environment {
     variables = {
-      ENVIRONMENT                             = var.environment
-      ENABLE_ORGANIZATION_RUNNERS             = var.enable_organization_runners
-      MINIMUM_RUNNING_TIME_IN_MINUTES         = var.minimum_running_time_in_minutes
-      SCALE_DOWN_CONFIG                       = jsonencode(var.idle_config)
-      GHES_URL                                = var.ghes_url
-      PARAMETER_GITHUB_APP_CLIENT_ID_NAME     = var.github_app_parameters.client_id.name
-      PARAMETER_GITHUB_APP_CLIENT_SECRET_NAME = var.github_app_parameters.client_secret.name
-      PARAMETER_GITHUB_APP_ID_NAME            = var.github_app_parameters.id.name
-      PARAMETER_GITHUB_APP_KEY_BASE64_NAME    = var.github_app_parameters.key_base64.name
+      ENVIRONMENT                          = var.environment
+      GHES_URL                             = var.ghes_url
+      LOG_LEVEL                            = var.log_level
+      LOG_TYPE                             = var.log_type
+      MINIMUM_RUNNING_TIME_IN_MINUTES      = coalesce(var.minimum_running_time_in_minutes, local.min_runtime_defaults[var.runner_os])
+      NODE_TLS_REJECT_UNAUTHORIZED         = var.ghes_url != null && !var.ghes_ssl_verify ? 0 : 1
+      PARAMETER_GITHUB_APP_ID_NAME         = var.github_app_parameters.id.name
+      PARAMETER_GITHUB_APP_KEY_BASE64_NAME = var.github_app_parameters.key_base64.name
+      RUNNER_BOOT_TIME_IN_MINUTES          = var.runner_boot_time_in_minutes
+      SCALE_DOWN_CONFIG                    = jsonencode(var.idle_config)
     }
   }
 
@@ -71,11 +80,9 @@ resource "aws_iam_role_policy" "scale_down" {
   name = "${var.environment}-lambda-scale-down-policy"
   role = aws_iam_role.scale_down.name
   policy = templatefile("${path.module}/policies/lambda-scale-down.json", {
-    github_app_client_id_arn     = var.github_app_parameters.client_id.arn
-    github_app_client_secret_arn = var.github_app_parameters.client_secret.arn
-    github_app_id_arn            = var.github_app_parameters.id.arn
-    github_app_key_base64_arn    = var.github_app_parameters.key_base64.arn
-    kms_key_arn                  = local.kms_key_arn
+    github_app_id_arn         = var.github_app_parameters.id.arn
+    github_app_key_base64_arn = var.github_app_parameters.key_base64.arn
+    kms_key_arn               = local.kms_key_arn
   })
 }
 

@@ -1,7 +1,11 @@
-import { handle } from './syncer/handler';
+import { sync } from './syncer/syncer';
+import { logger } from './syncer/logger';
 
-handle()
+sync()
   .then()
   .catch((e) => {
-    console.log(e);
+    if (e instanceof Error) {
+      logger.error(e.message);
+    }
+    logger.trace(e);
   });

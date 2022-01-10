@@ -3,8 +3,8 @@ locals {
   aws_region  = "eu-west-1"
 }
 
-resource "random_password" "random" {
-  length = 28
+resource "random_id" "random" {
+  byte_length = 20
 }
 
 module "runners" {
@@ -22,9 +22,7 @@ module "runners" {
   github_app = {
     key_base64     = var.github_app_key_base64
     id             = var.github_app_id
-    client_id      = var.github_app_client_id
-    client_secret  = var.github_app_client_secret
-    webhook_secret = random_password.random.result
+    webhook_secret = random_id.random.hex
   }
 
   # webhook_lambda_zip                = "lambdas-download/webhook.zip"
@@ -37,6 +35,7 @@ module "runners" {
   # enable access to the runners via SSM
   enable_ssm_on_runners = true
 
+  runner_run_as     = "runners"
   userdata_template = "./templates/user-data.sh"
   ami_owners        = ["099720109477"] # Canonical's Amazon account ID
 
@@ -77,6 +76,4 @@ module "runners" {
   #   idleCount = 1
   # }]
 
-  # disable KMS and encryption
-  # encrypt_secrets = false
 }

@@ -45,7 +45,7 @@ variable "role_permissions_boundary" {
 }
 
 variable "role_path" {
-  description = "The path that will be added to the role, if not set the environment name will be used."
+  description = "The path that will be added to the role; if not set, the environment name will be used."
   type        = string
   default     = null
 }
@@ -87,4 +87,48 @@ variable "runner_extra_labels" {
   description = "Extra labels for the runners (GitHub). Separate each label by a comma"
   type        = string
   default     = ""
+}
+
+variable "log_type" {
+  description = "Logging format for lambda logging. Valid values are 'json', 'pretty', 'hidden'. "
+  type        = string
+  default     = "pretty"
+  validation {
+    condition = anytrue([
+      var.log_type == "json",
+      var.log_type == "pretty",
+      var.log_type == "hidden",
+    ])
+    error_message = "`log_type` value not valid. Valid values are 'json', 'pretty', 'hidden'."
+  }
+}
+
+variable "log_level" {
+  description = "Logging level for lambda logging. Valid values are  'silly', 'trace', 'debug', 'info', 'warn', 'error', 'fatal'."
+  type        = string
+  default     = "info"
+  validation {
+    condition = anytrue([
+      var.log_level == "silly",
+      var.log_level == "trace",
+      var.log_level == "debug",
+      var.log_level == "info",
+      var.log_level == "warn",
+      var.log_level == "error",
+      var.log_level == "fatal",
+    ])
+    error_message = "`log_level` value not valid. Valid values are 'silly', 'trace', 'debug', 'info', 'warn', 'error', 'fatal'."
+  }
+}
+
+variable "disable_check_wokflow_job_labels" {
+  description = "Disable the the check of workflow labels."
+  type        = bool
+  default     = false
+}
+
+variable "sqs_build_queue_fifo" {
+  description = "Enable a FIFO queue to remain the order of events received by the webhook. Suggest to set to true for repo level runners."
+  type        = bool
+  default     = false
 }

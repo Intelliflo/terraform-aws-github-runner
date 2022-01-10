@@ -14,7 +14,7 @@ variable "subnet_ids" {
 }
 
 variable "overrides" {
-  description = "This maps provides the possibility to override some defaults. The following attributes are supported: `name_sg` overwrite the `Name` tag for all security groups created by this module. `name_runner_agent_instance` override the `Name` tag for the ec2 instance defined in the auto launch configuration. `name_docker_machine_runners` override the `Name` tag spot instances created by the runner agent."
+  description = "This map provides the possibility to override some defaults. The following attributes are supported: `name_sg` overrides the `Name` tag for all security groups created by this module. `name_runner_agent_instance` overrides the `Name` tag for the ec2 instance defined in the auto launch configuration. `name_docker_machine_runners` overrides the `Name` tag spot instances created by the runner agent."
   type        = map(string)
 
   default = {
@@ -52,9 +52,53 @@ variable "block_device_mappings" {
 }
 
 variable "market_options" {
-  description = "Market options for the action runner instances."
+  description = "DEPCRECATED: Replaced by `instance_target_capacity_type`."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = anytrue([var.market_options == null])
+    error_message = "Deprecated, replaced by `instance_target_capacity_type`."
+  }
+}
+
+variable "instance_target_capacity_type" {
+  description = "Default lifecyle used runner instances, can be either `spot` or `on-demand`."
   type        = string
   default     = "spot"
+
+  validation {
+    condition     = contains(["spot", "on-demand"], var.instance_target_capacity_type)
+    error_message = "The instance target capacity should be either spot or on-demand."
+  }
+}
+
+variable "instance_allocation_strategy" {
+  description = "The allocation strategy for spot instances. AWS recommends to use `capacity-optimized` however the AWS default is `lowest-price`."
+  type        = string
+  default     = "lowest-price"
+
+  validation {
+    condition     = contains(["lowest-price", "diversified", "capacity-optimized", "capacity-optimized-prioritized"], var.instance_allocation_strategy)
+    error_message = "The instance allocation strategy does not match the allowed values."
+  }
+}
+
+variable "instance_max_spot_price" {
+  description = "Max price price for spot intances per hour. This variable will be passed to the create fleet as max spot price for the fleet."
+  type        = string
+  default     = null
+}
+
+variable "runner_os" {
+  description = "The EC2 Operating System type to use for action runner instances (linux,win)."
+  type        = string
+  default     = "linux"
+
+  validation {
+    condition     = contains(["linux", "win"], var.runner_os)
+    error_message = "Valid values for runner_os are (linux, win)."
+  }
 }
 
 variable "instance_type" {
@@ -64,24 +108,27 @@ variable "instance_type" {
 }
 
 variable "instance_types" {
-  description = "List of instance types for the action runner."
-  type        = set(string)
+  description = "List of instance types for the action runner. Defaults are based on runner_os (amzn2 for linux and Windows Server Core for win)."
+  type        = list(string)
   default     = null
 }
 
 variable "ami_filter" {
-  description = "List of maps used to create the AMI filter for the action runner AMI."
+  description = "Map of lists used to create the AMI filter for the action runner AMI."
   type        = map(list(string))
-
-  default = {
-    name = ["amzn2-ami-hvm-2.*-x86_64-ebs"]
-  }
+  default     = null
 }
 
 variable "ami_owners" {
   description = "The list of owners used to select the AMI of action runner instances."
   type        = list(string)
   default     = ["amazon"]
+}
+
+variable "enabled_userdata" {
+  description = "Should the userdata script be enabled for the runner. Set this to false if you are using your own prebuilt AMI"
+  type        = bool
+  default     = true
 }
 
 variable "userdata_template" {
@@ -91,13 +138,13 @@ variable "userdata_template" {
 }
 
 variable "userdata_pre_install" {
-  description = "User-data script snippet to insert before GitHub acton runner install"
+  description = "User-data script snippet to insert before GitHub action runner install"
   type        = string
   default     = ""
 }
 
 variable "userdata_post_install" {
-  description = "User-data script snippet to insert after GitHub acton runner install"
+  description = "User-data script snippet to insert after GitHub action runner install"
   type        = string
   default     = ""
 }
@@ -116,10 +163,8 @@ variable "enable_organization_runners" {
 variable "github_app_parameters" {
   description = "Parameter Store for GitHub App Parameters."
   type = object({
-    key_base64    = map(string)
-    id            = map(string)
-    client_id     = map(string)
-    client_secret = map(string)
+    key_base64 = map(string)
+    id         = map(string)
   })
 }
 
@@ -130,7 +175,13 @@ variable "scale_down_schedule_expression" {
 }
 
 variable "minimum_running_time_in_minutes" {
-  description = "The time an ec2 action runner should be running at minimum before terminated if non busy."
+  description = "The time an ec2 action runner should be running at minimum before terminated if non busy. If not set the default is calculated based on the OS."
+  type        = number
+  default     = null
+}
+
+variable "runner_boot_time_in_minutes" {
+  description = "The minimum time for an EC2 runner to boot and register as a runner."
   type        = number
   default     = 5
 }
@@ -159,6 +210,12 @@ variable "lambda_timeout_scale_down" {
   default     = 60
 }
 
+variable "scale_up_reserved_concurrent_executions" {
+  description = "Amount of reserved concurrent executions for the scale-up lambda function. A value of 0 disables lambda from being triggered and -1 removes any concurrency limitations."
+  type        = number
+  default     = 1
+}
+
 variable "lambda_timeout_scale_up" {
   description = "Time out for the scale up lambda in seconds."
   type        = number
@@ -172,7 +229,7 @@ variable "role_permissions_boundary" {
 }
 
 variable "role_path" {
-  description = "The path that will be added to the role, if not set the environment name will be used."
+  description = "The path that will be added to the role; if not set, the environment name will be used."
   type        = string
   default     = null
 }
@@ -184,9 +241,15 @@ variable "instance_profile_path" {
 }
 
 variable "runner_as_root" {
-  description = "Run the action runner under the root user."
+  description = "Run the action runner under the root user. Variable `runner_run_as` will be ingored."
   type        = bool
   default     = false
+}
+
+variable "runner_run_as" {
+  description = "Run the GitHub actions agent as user."
+  type        = string
+  default     = "ec2-user"
 }
 
 variable "runners_maximum_count" {
@@ -218,7 +281,7 @@ variable "logging_retention_in_days" {
 }
 
 variable "enable_ssm_on_runners" {
-  description = "Enable to allow access the runner instances for debugging purposes via SSM. Note that this adds additional permissions to the runner instances."
+  description = "Enable to allow access to the runner instances for debugging purposes via SSM. Note that this adds additional permissions to the runner instances."
   type        = bool
 }
 
@@ -238,7 +301,7 @@ variable "runners_lambda_s3_object_version" {
 }
 
 variable "create_service_linked_role_spot" {
-  description = "(optional) create the serviced linked role for spot instances that is required by the scale-up lambda."
+  description = "(optional) create the service linked role for spot instances that is required by the scale-up lambda."
   type        = bool
   default     = false
 }
@@ -262,39 +325,26 @@ variable "cloudwatch_config" {
 }
 
 variable "runner_log_files" {
-  description = "(optional) List of logfiles to send to cloudwatch, will only be used if `enable_cloudwatch_agent` is set to true. Object description: `log_group_name`: Name of the log group, `prefix_log_group`: If true, the log group name will be prefixed with `/github-self-hosted-runners/<var.environment>`, `file_path`: path to the log file, `log_stream_name`: name of the log stream."
+  description = "(optional) List of logfiles to send to CloudWatch, will only be used if `enable_cloudwatch_agent` is set to true. Object description: `log_group_name`: Name of the log group, `prefix_log_group`: If true, the log group name will be prefixed with `/github-self-hosted-runners/<var.environment>`, `file_path`: path to the log file, `log_stream_name`: name of the log stream."
   type = list(object({
     log_group_name   = string
     prefix_log_group = bool
     file_path        = string
     log_stream_name  = string
   }))
-  default = [
-    {
-      "log_group_name" : "messages",
-      "prefix_log_group" : true,
-      "file_path" : "/var/log/messages",
-      "log_stream_name" : "{instance_id}"
-    },
-    {
-      "log_group_name" : "user_data",
-      "prefix_log_group" : true,
-      "file_path" : "/var/log/user-data.log",
-      "log_stream_name" : "{instance_id}"
-    },
-    {
-      "log_group_name" : "runner",
-      "prefix_log_group" : true,
-      "file_path" : "/home/ec2-user/actions-runner/_diag/Runner_**.log",
-      "log_stream_name" : "{instance_id}"
-    }
-  ]
+  default = null
 }
 
 variable "ghes_url" {
   description = "GitHub Enterprise Server URL. DO NOT SET IF USING PUBLIC GITHUB"
   type        = string
   default     = null
+}
+
+variable "ghes_ssl_verify" {
+  description = "GitHub Enterprise SSL verification. Set to 'false' when custom certificate (chains) is used for GitHub Enterprise Server (insecure)."
+  type        = bool
+  default     = true
 }
 
 variable "lambda_subnet_ids" {
@@ -331,4 +381,84 @@ variable "kms_key_arn" {
   description = "Optional CMK Key ARN to be used for Parameter Store."
   type        = string
   default     = null
+}
+
+variable "egress_rules" {
+  description = "List of egress rules for the GitHub runner instances."
+  type = list(object({
+    cidr_blocks      = list(string)
+    ipv6_cidr_blocks = list(string)
+    prefix_list_ids  = list(string)
+    from_port        = number
+    protocol         = string
+    security_groups  = list(string)
+    self             = bool
+    to_port          = number
+    description      = string
+  }))
+  default = [{
+    cidr_blocks      = ["0.0.0.0/0"]
+    ipv6_cidr_blocks = ["::/0"]
+    prefix_list_ids  = null
+    from_port        = 0
+    protocol         = "-1"
+    security_groups  = null
+    self             = null
+    to_port          = 0
+    description      = null
+  }]
+}
+
+variable "log_type" {
+  description = "Logging format for lambda logging. Valid values are 'json', 'pretty', 'hidden'. "
+  type        = string
+  default     = "pretty"
+  validation {
+    condition = anytrue([
+      var.log_type == "json",
+      var.log_type == "pretty",
+      var.log_type == "hidden",
+    ])
+    error_message = "`log_type` value not valid. Valid values are 'json', 'pretty', 'hidden'."
+  }
+}
+
+variable "log_level" {
+  description = "Logging level for lambda logging. Valid values are  'silly', 'trace', 'debug', 'info', 'warn', 'error', 'fatal'."
+  type        = string
+  default     = "info"
+  validation {
+    condition = anytrue([
+      var.log_level == "silly",
+      var.log_level == "trace",
+      var.log_level == "debug",
+      var.log_level == "info",
+      var.log_level == "warn",
+      var.log_level == "error",
+      var.log_level == "fatal",
+    ])
+    error_message = "`log_level` value not valid. Valid values are 'silly', 'trace', 'debug', 'info', 'warn', 'error', 'fatal'."
+  }
+}
+
+variable "runner_ec2_tags" {
+  description = "Map of tags that will be added to the launch template instance tag specificatons."
+  type        = map(string)
+  default     = {}
+}
+
+variable "metadata_options" {
+  description = "Metadata options for the ec2 runner instances."
+  type        = map(any)
+  default = {
+    http_endpoint               = "enabled"
+    http_tokens                 = "optional"
+    http_put_response_hop_limit = 1
+  }
+}
+
+variable "enable_ephemeral_runners" {
+  description = "Enable ephemeral runners, runners will only be used once."
+  type        = bool
+  default     = false
 }
