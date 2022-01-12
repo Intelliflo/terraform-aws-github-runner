@@ -55,6 +55,7 @@ resource "aws_iam_role_policy" "gh_artifacts_bucket" {
   policy = templatefile("${path.module}/policies/instance-s3-gh-policy.json",
     {
       s3_arn = "arn:aws:s3:::github-ci-loop-artifacts"
+      s3_packages_arn = "arn:aws:s3:::packages.shs-ie-01.intelliflo.services"
     }
   )
 }
