@@ -18,8 +18,8 @@ secrets.auto.tfvars
 *.gz
 *.tgz
 *.env*
-.vscode
 
 **/coverage/*
 
 node_modules/
+site/

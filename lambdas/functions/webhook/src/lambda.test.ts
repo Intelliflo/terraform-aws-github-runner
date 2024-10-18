@@ -1,9 +1,11 @@
-import { logger } from '@terraform-aws-github-runner/aws-powertools-util';
+import { logger } from '@aws-github-runner/aws-powertools-util';
 import { APIGatewayEvent, Context } from 'aws-lambda';
 import { mocked } from 'jest-mock';
 
 import { githubWebhook } from './lambda';
-import { handle } from './webhook/handler';
+import { handle } from './webhook';
+import ValidationError from './ValidationError';
+import { getParameter } from '@aws-github-runner/aws-ssm-util';
 
 const event: APIGatewayEvent = {
   body: JSON.stringify(''),
@@ -71,31 +73,32 @@ const context: Context = {
   },
 };
 
-jest.mock('./webhook/handler');
+jest.mock('./webhook');
+jest.mock('@aws-github-runner/aws-ssm-util');
 
 describe('Test scale up lambda wrapper.', () => {
+  beforeEach(() => {
+    const mockedGet = mocked(getParameter);
+    mockedGet.mockResolvedValue('[]');
+  });
   it('Happy flow, resolve.', async () => {
     const mock = mocked(handle);
     mock.mockImplementation(() => {
       return new Promise((resolve) => {
-        resolve({ statusCode: 200 });
+        resolve({ body: 'test', statusCode: 200 });
       });
     });
 
     const result = await githubWebhook(event, context);
-    expect(result).toEqual({ statusCode: 200 });
+    expect(result).toEqual({ body: 'test', statusCode: 200 });
   });
 
   it('An expected error, resolve.', async () => {
     const mock = mocked(handle);
-    mock.mockImplementation(() => {
-      return new Promise((resolve) => {
-        resolve({ statusCode: 400 });
-      });
-    });
+    mock.mockRejectedValue(new ValidationError(400, 'some error'));
 
     const result = await githubWebhook(event, context);
-    expect(result).toEqual({ statusCode: 400 });
+    expect(result).toMatchObject({ body: 'some error', statusCode: 400 });
   });
 
   it('Errors are not thrown.', async () => {
@@ -103,7 +106,7 @@ describe('Test scale up lambda wrapper.', () => {
     const logSpy = jest.spyOn(logger, 'error');
     mock.mockRejectedValue(new Error('some error'));
     const result = await githubWebhook(event, context);
-    expect(result).toMatchObject({ statusCode: 500 });
-    expect(logSpy).toBeCalledTimes(1);
+    expect(result).toMatchObject({ body: 'Check the Lambda logs for the error details.', statusCode: 500 });
+    expect(logSpy).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,3 +6,15 @@ dist/
 # Ignore all yarn.lock files except the one in the root
 **/yarn.lock
 !/yarn.lock
+
+
+.nx/cache
+.nx/workspace-data
+
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions

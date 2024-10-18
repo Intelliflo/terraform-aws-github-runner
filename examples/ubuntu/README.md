@@ -1,10 +1,12 @@
-# Action runners deployment ubuntu example
+# Ubuntu example
+
+> This example will be removed soon. Please check the example for epehemeral runners to see how to setup ubuntu based runner.
 
 This module shows how to create GitHub action runners using an Ubuntu AMI. Lambda release will be downloaded from GitHub.
 
 ## Usages
 
-Steps for the full setup, such as creating a GitHub app can be found in the root module's [README](../../README.md). First download the Lambda releases from GitHub. Alternatively you can build the lambdas locally with Node or Docker, there is a simple build script in `<root>/.ci/build.sh`. In the `main.tf` you can simply remove the location of the lambda zip files, the default location will work in this case.
+Steps for the full setup, such as creating a GitHub app can be found in the [docs](https://philips-labs.github.io/terraform-aws-github-runner/getting-started/). First download the Lambda releases from GitHub. Alternatively you can build the lambdas locally with Node or Docker, there is a simple build script in `<root>/.ci/build.sh`. In the `main.tf` you can simply remove the location of the lambda zip files, the default location will work in this case.
 
 > Ensure you have set the version in `lambdas-download/main.tf` for running the example. The version needs to be set to a GitHub release version, see https://github.com/philips-labs/terraform-aws-github-runner/releases
 
@@ -23,13 +25,19 @@ terraform init
 terraform apply
 ```
 
+The module will try to update the GitHub App webhook and secret (only linux/mac). You can receive the webhook details by running:
+
+```bash
+terraform output webhook_secret
+```
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
 | Name | Version |
 |------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.3.0 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 4.0 |
+| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 5.27 |
 | <a name="requirement_local"></a> [local](#requirement\_local) | ~> 2.0 |
 | <a name="requirement_random"></a> [random](#requirement\_random) | ~> 3.0 |
 
@@ -37,7 +45,7 @@ terraform apply
 
 | Name | Version |
 |------|---------|
-| <a name="provider_random"></a> [random](#provider\_random) | 3.4.3 |
+| <a name="provider_random"></a> [random](#provider\_random) | 3.6.0 |
 
 ## Modules
 
@@ -45,7 +53,7 @@ terraform apply
 |------|--------|---------|
 | <a name="module_base"></a> [base](#module\_base) | ../base | n/a |
 | <a name="module_runners"></a> [runners](#module\_runners) | ../../ | n/a |
-| <a name="module_vpc"></a> [vpc](#module\_vpc) | terraform-aws-modules/vpc/aws | 3.11.2 |
+| <a name="module_webhook_github_app"></a> [webhook\_github\_app](#module\_webhook\_github\_app) | ../../modules/webhook-github-app | n/a |
 
 ## Resources
 
@@ -57,7 +65,7 @@ terraform apply
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| <a name="input_github_app"></a> [github\_app](#input\_github\_app) | GitHub for API usages. | <pre>object({<br>    id         = string<br>    key_base64 = string<br>  })</pre> | n/a | yes |
+| <a name="input_github_app"></a> [github\_app](#input\_github\_app) | GitHub for API usages. | <pre>object({<br/>    id         = string<br/>    key_base64 = string<br/>  })</pre> | n/a | yes |
 
 ## Outputs
 

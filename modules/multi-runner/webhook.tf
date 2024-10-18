@@ -4,7 +4,12 @@ module "webhook" {
   tags        = local.tags
   kms_key_arn = var.kms_key_arn
 
-  runner_config          = local.runner_config
+  runner_matcher_config               = local.runner_config
+  matcher_config_parameter_store_tier = var.matcher_config_parameter_store_tier
+  ssm_paths = {
+    root    = local.ssm_root_path
+    webhook = var.ssm_paths.webhook
+  }
   sqs_workflow_job_queue = length(aws_sqs_queue.webhook_events_workflow_job_queue) > 0 ? aws_sqs_queue.webhook_events_workflow_job_queue[0] : null
 
   github_app_parameters = {
@@ -19,7 +24,9 @@ module "webhook" {
   lambda_architecture                           = var.lambda_architecture
   lambda_zip                                    = var.webhook_lambda_zip
   lambda_timeout                                = var.webhook_lambda_timeout
-  lambda_tracing_mode                           = var.lambda_tracing_mode
+  lambda_memory_size                            = var.webhook_lambda_memory_size
+  lambda_tags                                   = var.lambda_tags
+  tracing_config                                = var.tracing_config
   logging_retention_in_days                     = var.logging_retention_in_days
   logging_kms_key_id                            = var.logging_kms_key_id
 

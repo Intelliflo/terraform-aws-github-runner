@@ -1,10 +1,13 @@
-# Action runners deployment windows example
+# Windows runners
+
+
+> This example will be removed soon. Please check the example for epehemeral runners to see how to setup Windows based runner.
 
 This module shows how to create GitHub action runners using an Windows Runners. Lambda release will be downloaded from GitHub.
 
 ## Usages
 
-Steps for the full setup, such as creating a GitHub app can be found in the root module's [README](../../README.md). First, download the Lambda releases from GitHub. Alternatively you can build the lambdas locally with Node or Docker, for which there is a build script available at `<root>/.ci/build.sh`. In the `main.tf` you can remove the location of the lambda zip files, the default location will work in this case.
+Steps for the full setup, such as creating a GitHub app can be found in the [docs](https://philips-labs.github.io/terraform-aws-github-runner/getting-started/). First, download the Lambda releases from GitHub. Alternatively you can build the lambdas locally with Node or Docker, for which there is a build script available at `<root>/.ci/build.sh`. In the `main.tf` you can remove the location of the lambda zip files, the default location will work in this case.
 
 > Ensure you have set the version in `lambdas-download/main.tf` for running the example. The version needs to be set to a GitHub release version, see <https://github.com/philips-labs/terraform-aws-github-runner/releases>
 
@@ -25,13 +28,19 @@ terraform apply
 
 _**Note**_: It can take upwards of ten minutes for a runner to start processing jobs, and about as long for logs to start showing up. It's recommend that scale the runners via a warm-up job and then keep them idled.
 
+The module will try to update the GitHub App webhook and secret (only linux/mac). You can receive the webhook details by running:
+
+```bash
+terraform output webhook_secret
+```
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
 | Name | Version |
 |------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.3.0 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 4.0 |
+| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 5.27 |
 | <a name="requirement_local"></a> [local](#requirement\_local) | ~> 2.0 |
 | <a name="requirement_random"></a> [random](#requirement\_random) | ~> 3.0 |
 
@@ -39,7 +48,7 @@ _**Note**_: It can take upwards of ten minutes for a runner to start processing 
 
 | Name | Version |
 |------|---------|
-| <a name="provider_random"></a> [random](#provider\_random) | 3.4.3 |
+| <a name="provider_random"></a> [random](#provider\_random) | 3.6.0 |
 
 ## Modules
 
@@ -47,6 +56,7 @@ _**Note**_: It can take upwards of ten minutes for a runner to start processing 
 |------|--------|---------|
 | <a name="module_base"></a> [base](#module\_base) | ../base | n/a |
 | <a name="module_runners"></a> [runners](#module\_runners) | ../../ | n/a |
+| <a name="module_webhook_github_app"></a> [webhook\_github\_app](#module\_webhook\_github\_app) | ../../modules/webhook-github-app | n/a |
 
 ## Resources
 
@@ -58,7 +68,7 @@ _**Note**_: It can take upwards of ten minutes for a runner to start processing 
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| <a name="input_github_app"></a> [github\_app](#input\_github\_app) | GitHub for API usages. | <pre>object({<br>    id         = string<br>    key_base64 = string<br>  })</pre> | n/a | yes |
+| <a name="input_github_app"></a> [github\_app](#input\_github\_app) | GitHub for API usages. | <pre>object({<br/>    id         = string<br/>    key_base64 = string<br/>  })</pre> | n/a | yes |
 
 ## Outputs
 
