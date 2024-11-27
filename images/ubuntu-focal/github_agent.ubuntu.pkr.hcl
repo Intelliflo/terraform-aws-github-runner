@@ -104,7 +104,7 @@ source "amazon-ebs" "githubrunner" {
   associate_public_ip_address               = var.associate_public_ip_address
   temporary_security_group_source_public_ip = var.temporary_security_group_source_public_ip
 
-  ssh_interface = "session_manager"
+  ssh_interface        = "session_manager"
   iam_instance_profile = "AmazonSSMRoleForInstancesQuickSetup"
 
   source_ami_filter {
