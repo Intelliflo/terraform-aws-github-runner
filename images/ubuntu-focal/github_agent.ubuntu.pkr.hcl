@@ -44,7 +44,7 @@ variable "instance_type" {
 
 variable "root_volume_size_gb" {
   type    = number
-  default = 8
+  default = 250
 }
 
 variable "ebs_delete_on_termination" {
@@ -103,6 +103,9 @@ source "amazon-ebs" "githubrunner" {
   subnet_id                                 = var.subnet_id
   associate_public_ip_address               = var.associate_public_ip_address
   temporary_security_group_source_public_ip = var.temporary_security_group_source_public_ip
+
+  ssh_interface = "session_manager"
+  iam_instance_profile = "AmazonSSMRoleForInstancesQuickSetup"
 
   source_ami_filter {
     filters = {

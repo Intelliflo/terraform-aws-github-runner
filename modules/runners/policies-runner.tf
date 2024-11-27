@@ -77,15 +77,15 @@ resource "aws_iam_role_policy" "gh_artifacts_bucket" {
   role = aws_iam_role.runner.name
   policy = templatefile("${path.module}/policies/instance-s3-gh-policy.json",
     {
-      s3_arn = "arn:aws:s3:::github-ci-loop-artifacts"
+      s3_arn          = "arn:aws:s3:::github-ci-loop-artifacts"
       s3_packages_arn = "arn:aws:s3:::packages.shs-ie-01.intelliflo.services"
     }
   )
 }
 
 resource "aws_iam_role_policy" "runner_ecr_scan_push_access" {
-  name = "ecr-scan-push-access"
-  role       = aws_iam_role.runner.name
+  name   = "ecr-scan-push-access"
+  role   = aws_iam_role.runner.name
   policy = file("${path.module}/policies/instance-ecr-gh-policy.json")
 }
 
