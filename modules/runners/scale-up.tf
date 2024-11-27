@@ -1,3 +1,13 @@
+locals {
+  job_retry_config = local.job_retry_enabled ? {
+    enable         = var.job_retry.enable
+    maxAttempts    = var.job_retry.max_attempts
+    delayInSeconds = var.job_retry.delay_in_seconds
+    delayBackoff   = var.job_retry.delay_backoff
+    queueUrl       = module.job_retry[0].job_retry_check_queue.url
+  } : {}
+}
+
 resource "aws_lambda_function" "scale_up" {
   s3_bucket                      = var.lambda_s3_bucket != null ? var.lambda_s3_bucket : null
   s3_key                         = var.runners_lambda_s3_key != null ? var.runners_lambda_s3_key : null
@@ -10,37 +20,45 @@ resource "aws_lambda_function" "scale_up" {
   runtime                        = var.lambda_runtime
   timeout                        = var.lambda_timeout_scale_up
   reserved_concurrent_executions = var.scale_up_reserved_concurrent_executions
-  memory_size                    = 512
-  tags                           = local.tags
+  memory_size                    = var.lambda_scale_up_memory_size
+  tags                           = merge(local.tags, var.lambda_tags)
   architectures                  = [var.lambda_architecture]
-
   environment {
     variables = {
-      AMI_ID_SSM_PARAMETER_NAME            = var.ami_id_ssm_parameter_name
-      DISABLE_RUNNER_AUTOUPDATE            = var.disable_runner_autoupdate
-      ENABLE_EPHEMERAL_RUNNERS             = var.enable_ephemeral_runners
-      ENABLE_JOB_QUEUED_CHECK              = local.enable_job_queued_check
-      ENABLE_ORGANIZATION_RUNNERS          = var.enable_organization_runners
-      ENVIRONMENT                          = var.prefix
-      GHES_URL                             = var.ghes_url
-      INSTANCE_ALLOCATION_STRATEGY         = var.instance_allocation_strategy
-      INSTANCE_MAX_SPOT_PRICE              = var.instance_max_spot_price
-      INSTANCE_TARGET_CAPACITY_TYPE        = var.instance_target_capacity_type
-      INSTANCE_TYPES                       = join(",", var.instance_types)
-      LAUNCH_TEMPLATE_NAME                 = aws_launch_template.runner.name
-      LOG_LEVEL                            = var.log_level
-      MINIMUM_RUNNING_TIME_IN_MINUTES      = coalesce(var.minimum_running_time_in_minutes, local.min_runtime_defaults[var.runner_os])
-      NODE_TLS_REJECT_UNAUTHORIZED         = var.ghes_url != null && !var.ghes_ssl_verify ? 0 : 1
-      PARAMETER_GITHUB_APP_ID_NAME         = var.github_app_parameters.id.name
-      PARAMETER_GITHUB_APP_KEY_BASE64_NAME = var.github_app_parameters.key_base64.name
-      POWERTOOLS_LOGGER_LOG_EVENT          = var.log_level == "debug" ? "true" : "false"
-      RUNNER_EXTRA_LABELS                  = lower(var.runner_extra_labels)
-      RUNNER_GROUP_NAME                    = var.runner_group_name
-      RUNNER_NAME_PREFIX                   = var.runner_name_prefix
-      RUNNERS_MAXIMUM_COUNT                = var.runners_maximum_count
-      SERVICE_NAME                         = "runners-scale-up"
-      SSM_TOKEN_PATH                       = "${var.ssm_paths.root}/${var.ssm_paths.tokens}"
-      SUBNET_IDS                           = join(",", var.subnet_ids)
+      AMI_ID_SSM_PARAMETER_NAME                = var.ami_id_ssm_parameter_name
+      DISABLE_RUNNER_AUTOUPDATE                = var.disable_runner_autoupdate
+      ENABLE_EPHEMERAL_RUNNERS                 = var.enable_ephemeral_runners
+      ENABLE_JIT_CONFIG                        = var.enable_jit_config
+      ENABLE_JOB_QUEUED_CHECK                  = local.enable_job_queued_check
+      ENABLE_METRIC_GITHUB_APP_RATE_LIMIT      = var.metrics.enable && var.metrics.metric.enable_github_app_rate_limit
+      ENABLE_ORGANIZATION_RUNNERS              = var.enable_organization_runners
+      ENVIRONMENT                              = var.prefix
+      GHES_URL                                 = var.ghes_url
+      INSTANCE_ALLOCATION_STRATEGY             = var.instance_allocation_strategy
+      INSTANCE_MAX_SPOT_PRICE                  = var.instance_max_spot_price
+      INSTANCE_TARGET_CAPACITY_TYPE            = var.instance_target_capacity_type
+      INSTANCE_TYPES                           = join(",", var.instance_types)
+      LAUNCH_TEMPLATE_NAME                     = aws_launch_template.runner.name
+      LOG_LEVEL                                = var.log_level
+      MINIMUM_RUNNING_TIME_IN_MINUTES          = coalesce(var.minimum_running_time_in_minutes, local.min_runtime_defaults[var.runner_os])
+      NODE_TLS_REJECT_UNAUTHORIZED             = var.ghes_url != null && !var.ghes_ssl_verify ? 0 : 1
+      PARAMETER_GITHUB_APP_ID_NAME             = var.github_app_parameters.id.name
+      PARAMETER_GITHUB_APP_KEY_BASE64_NAME     = var.github_app_parameters.key_base64.name
+      POWERTOOLS_LOGGER_LOG_EVENT              = var.log_level == "debug" ? "true" : "false"
+      POWERTOOLS_METRICS_NAMESPACE             = var.metrics.namespace
+      POWERTOOLS_TRACE_ENABLED                 = var.tracing_config.mode != null ? true : false
+      POWERTOOLS_TRACER_CAPTURE_HTTPS_REQUESTS = var.tracing_config.capture_http_requests
+      POWERTOOLS_TRACER_CAPTURE_ERROR          = var.tracing_config.capture_error
+      RUNNER_LABELS                            = lower(join(",", var.runner_labels))
+      RUNNER_GROUP_NAME                        = var.runner_group_name
+      RUNNER_NAME_PREFIX                       = var.runner_name_prefix
+      RUNNERS_MAXIMUM_COUNT                    = var.runners_maximum_count
+      POWERTOOLS_SERVICE_NAME                  = "runners-scale-up"
+      SSM_TOKEN_PATH                           = local.token_path
+      SSM_CONFIG_PATH                          = "${var.ssm_paths.root}/${var.ssm_paths.config}"
+      SUBNET_IDS                               = join(",", var.subnet_ids)
+      ENABLE_ON_DEMAND_FAILOVER_FOR_ERRORS     = jsonencode(var.enable_on_demand_failover_for_errors)
+      JOB_RETRY_CONFIG                         = jsonencode(local.job_retry_config)
     }
   }
 
@@ -53,9 +71,9 @@ resource "aws_lambda_function" "scale_up" {
   }
 
   dynamic "tracing_config" {
-    for_each = var.lambda_tracing_mode != null ? [true] : []
+    for_each = var.tracing_config.mode != null ? [true] : []
     content {
-      mode = var.lambda_tracing_mode
+      mode = var.tracing_config.mode
     }
   }
 }
@@ -90,21 +108,21 @@ resource "aws_iam_role" "scale_up" {
 }
 
 resource "aws_iam_role_policy" "scale_up" {
-  name = "${var.prefix}-lambda-scale-up-policy"
+  name = "scale-up-policy"
   role = aws_iam_role.scale_up.name
   policy = templatefile("${path.module}/policies/lambda-scale-up.json", {
     arn_runner_instance_role  = aws_iam_role.runner.arn
     sqs_arn                   = var.sqs_build_queue.arn
     github_app_id_arn         = var.github_app_parameters.id.arn
     github_app_key_base64_arn = var.github_app_parameters.key_base64.arn
+    ssm_config_path           = "arn:${var.aws_partition}:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_paths.root}/${var.ssm_paths.config}"
     kms_key_arn               = local.kms_key_arn
     ami_kms_key_arn           = local.ami_kms_key_arn
   })
 }
 
-
 resource "aws_iam_role_policy" "scale_up_logging" {
-  name = "${var.prefix}-lambda-logging"
+  name = "logging-policy"
   role = aws_iam_role.scale_up.name
   policy = templatefile("${path.module}/policies/lambda-cloudwatch.json", {
     log_group_arn = aws_cloudwatch_log_group.scale_up.arn
@@ -113,17 +131,9 @@ resource "aws_iam_role_policy" "scale_up_logging" {
 
 resource "aws_iam_role_policy" "service_linked_role" {
   count  = var.create_service_linked_role_spot ? 1 : 0
-  name   = "${var.prefix}-service_linked_role"
+  name   = "service_linked_role"
   role   = aws_iam_role.scale_up.name
   policy = templatefile("${path.module}/policies/service-linked-role-create-policy.json", { aws_partition = var.aws_partition })
-}
-
-resource "aws_iam_role_policy" "lambda_scale_up_vpc" {
-  count = length(var.lambda_subnet_ids) > 0 && length(var.lambda_security_group_ids) > 0 ? 1 : 0
-  name  = "${var.prefix}-lambda-scale-up-vpc"
-  role  = aws_iam_role.scale_up.id
-
-  policy = file("${path.module}/policies/lambda-vpc.json")
 }
 
 resource "aws_iam_role_policy_attachment" "scale_up_vpc_execution_role" {
@@ -139,7 +149,19 @@ resource "aws_iam_role_policy_attachment" "ami_id_ssm_parameter_read" {
 }
 
 resource "aws_iam_role_policy" "scale_up_xray" {
-  count  = var.lambda_tracing_mode != null ? 1 : 0
+  count  = var.tracing_config.mode != null ? 1 : 0
+  name   = "xray-policy"
   policy = data.aws_iam_policy_document.lambda_xray[0].json
   role   = aws_iam_role.scale_up.name
+}
+
+resource "aws_iam_role_policy" "job_retry_sqs_publish" {
+  count = local.job_retry_enabled ? 1 : 0
+  name  = "publish-retry-check-sqs-policy"
+  role  = aws_iam_role.scale_up.name
+
+  policy = templatefile("${path.module}/policies/lambda-publish-sqs-policy.json", {
+    sqs_resource_arns = jsonencode([module.job_retry[0].job_retry_check_queue.arn])
+    kms_key_arn       = var.kms_key_arn != null ? var.kms_key_arn : ""
+  })
 }

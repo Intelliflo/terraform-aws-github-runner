@@ -9,6 +9,7 @@ export interface RunnerList {
   type?: string;
   repo?: string;
   org?: string;
+  orphan?: boolean;
 }
 
 export interface RunnerInfo {
@@ -22,15 +23,14 @@ export interface ListRunnerFilters {
   runnerType?: RunnerType;
   runnerOwner?: string;
   environment?: string;
+  orphan?: boolean;
   statuses?: string[];
 }
 
 export interface RunnerInputParameters {
-  runnerServiceConfig: string[];
   environment: string;
   runnerType: RunnerType;
   runnerOwner: string;
-  ssmTokenPath: string;
   subnets: string[];
   launchTemplateName: string;
   ec2instanceCriteria: {
@@ -39,6 +39,8 @@ export interface RunnerInputParameters {
     maxSpotPrice?: string;
     instanceAllocationStrategy: SpotAllocationStrategy;
   };
-  numberOfRunners?: number;
+  numberOfRunners: number;
   amiIdSsmParameterName?: string;
+  tracingEnabled?: boolean;
+  onDemandFailoverOnError?: string[];
 }

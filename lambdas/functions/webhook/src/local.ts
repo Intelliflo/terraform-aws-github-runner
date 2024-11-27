@@ -1,14 +1,16 @@
 import bodyParser from 'body-parser';
 import express from 'express';
 
-import { handle } from './webhook/handler';
+import { publishForRunners } from './webhook';
+import { ConfigWebhook } from './ConfigLoader';
 
 const app = express();
 
 app.use(bodyParser.json());
 
-app.post('/event_handler', (req, res) => {
-  handle(req.headers, JSON.stringify(req.body))
+app.post('/event_handler', async (req, res) => {
+  const config: ConfigWebhook = await ConfigWebhook.load();
+  publishForRunners(req.headers, JSON.stringify(req.body), config)
     .then((c) => res.status(c.statusCode).end())
     .catch((e) => {
       console.log(e);

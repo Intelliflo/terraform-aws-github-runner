@@ -36,13 +36,13 @@ module "runners" {
   runner_binaries_syncer_lambda_zip = "../lambdas-download/runner-binaries-syncer.zip"
   runners_lambda_zip                = "../lambdas-download/runners.zip"
 
-  runner_extra_labels = "default,example"
+  runner_extra_labels = ["default", "example"]
 
   runner_os = var.runner_os
 
   # configure your pre-built AMI
   enable_userdata = false
-  ami_filter      = { name = [var.ami_name_filter] }
+  ami_filter      = { name = [var.ami_name_filter], state = ["available"] }
   ami_owners      = [data.aws_caller_identity.current.account_id]
 
   # Look up runner AMI ID from an AWS SSM parameter (overrides ami_filter at instance launch time)
@@ -60,4 +60,16 @@ module "runners" {
 
   # override scaling down
   scale_down_schedule_expression = "cron(* * * * ? *)"
+}
+
+module "webhook_github_app" {
+  source     = "../../modules/webhook-github-app"
+  depends_on = [module.runners]
+
+  github_app = {
+    key_base64     = var.github_app.key_base64
+    id             = var.github_app.id
+    webhook_secret = random_id.random.hex
+  }
+  webhook_endpoint = module.runners.webhook.endpoint
 }

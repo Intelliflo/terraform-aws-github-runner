@@ -18,8 +18,8 @@ locals {
   kms_key_arn                     = var.kms_key_arn != null ? var.kms_key_arn : ""
   s3_location_runner_distribution = var.enable_runner_binaries_syncer ? "s3://${var.s3_runner_binaries.id}/${var.s3_runner_binaries.key}" : ""
   default_ami = {
-    "windows" = { name = ["Windows_Server-2022-English-Core-ContainersLatest-*"] }
-    "linux"   = var.runner_architecture == "arm64" ? { name = ["amzn2-ami-kernel-5.*-hvm-*-arm64-gp2"] } : { name = ["amzn2-ami-kernel-5.*-hvm-*-x86_64-gp2"] }
+    "windows" = { name = ["Windows_Server-2022-English-Full-ECS_Optimized-*"] }
+    "linux"   = var.runner_architecture == "arm64" ? { name = ["al2023-ami-2023.*-kernel-6.*-arm64"] } : { name = ["al2023-ami-2023.*-kernel-6.*-x86_64"] }
   }
 
   default_userdata_template = {
@@ -38,9 +38,34 @@ locals {
   }
 
   ami_kms_key_arn = var.ami_kms_key_arn != null ? var.ami_kms_key_arn : ""
-  ami_filter      = coalesce(var.ami_filter, local.default_ami[var.runner_os])
+  ami_filter      = merge(local.default_ami[var.runner_os], var.ami_filter)
 
   enable_job_queued_check = var.enable_job_queued_check == null ? !var.enable_ephemeral_runners : var.enable_job_queued_check
+
+  arn_ssm_parameters_path_config = "arn:${var.aws_partition}:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_paths.root}/${var.ssm_paths.config}"
+
+  token_path = "${var.ssm_paths.root}/${var.ssm_paths.tokens}"
+
+  user_data = var.enable_userdata ? (var.userdata_content == null ? templatefile(local.userdata_template, {
+    enable_debug_logging            = var.enable_user_data_debug_logging
+    s3_location_runner_distribution = local.s3_location_runner_distribution
+    pre_install                     = var.userdata_pre_install
+    install_runner = templatefile(local.userdata_install_runner[var.runner_os], {
+      S3_LOCATION_RUNNER_DISTRIBUTION = local.s3_location_runner_distribution
+      RUNNER_ARCHITECTURE             = var.runner_architecture
+    })
+    post_install = var.userdata_post_install
+    start_runner = templatefile(local.userdata_start_runner[var.runner_os], {
+      metadata_tags = var.metadata_options != null ? var.metadata_options.instance_metadata_tags : "enabled"
+    })
+    ghes_url        = var.ghes_url
+    ghes_ssl_verify = var.ghes_ssl_verify
+
+    ## retain these for backwards compatibility
+    environment                     = var.prefix
+    enable_cloudwatch_agent         = var.enable_cloudwatch_agent
+    ssm_key_cloudwatch_agent_config = var.enable_cloudwatch_agent ? aws_ssm_parameter.cloudwatch_agent_config_runner[0].name : ""
+  }) : var.userdata_content) : ""
 }
 
 data "aws_ami" "runner" {
@@ -97,6 +122,13 @@ resource "aws_launch_template" "runner" {
     }
   }
 
+  dynamic "credit_specification" {
+    for_each = var.credit_specification != null ? [var.credit_specification] : []
+    content {
+      cpu_credits = credit_specification.value
+    }
+  }
+
   monitoring {
     enabled = var.enable_runner_detailed_monitoring
   }
@@ -108,11 +140,12 @@ resource "aws_launch_template" "runner" {
   instance_initiated_shutdown_behavior = "terminate"
   image_id                             = data.aws_ami.runner.id
   key_name                             = var.key_name
+  ebs_optimized                        = var.ebs_optimized
 
-  vpc_security_group_ids = compact(concat(
+  vpc_security_group_ids = !var.associate_public_ipv4_address ? compact(concat(
     var.enable_managed_runner_security_group ? [aws_security_group.runner_sg[0].id] : [],
     var.runner_additional_security_group_ids,
-  ))
+  )) : []
 
   tag_specifications {
     resource_type = "instance"
@@ -142,30 +175,23 @@ resource "aws_launch_template" "runner" {
     )
   }
 
-  user_data = var.enable_userdata ? base64encode(templatefile(local.userdata_template, {
-    enable_debug_logging            = var.enable_user_data_debug_logging
-    s3_location_runner_distribution = local.s3_location_runner_distribution
-    pre_install                     = var.userdata_pre_install
-    install_runner = templatefile(local.userdata_install_runner[var.runner_os], {
-      S3_LOCATION_RUNNER_DISTRIBUTION = local.s3_location_runner_distribution
-      RUNNER_ARCHITECTURE             = var.runner_architecture
-    })
-    post_install = var.userdata_post_install
-    start_runner = templatefile(local.userdata_start_runner[var.runner_os], {
-      metadata_tags = var.metadata_options != null ? var.metadata_options.instance_metadata_tags : "enabled"
-    })
-    ghes_url        = var.ghes_url
-    ghes_ssl_verify = var.ghes_ssl_verify
-
-    ## retain these for backwards compatibility
-    environment                     = var.prefix
-    enable_cloudwatch_agent         = var.enable_cloudwatch_agent
-    ssm_key_cloudwatch_agent_config = var.enable_cloudwatch_agent ? aws_ssm_parameter.cloudwatch_agent_config_runner[0].name : ""
-  })) : ""
+  user_data = var.runner_os == "windows" ? base64encode(local.user_data) : base64gzip(local.user_data)
 
   tags = local.tags
 
   update_default_version = true
+
+  dynamic "network_interfaces" {
+    for_each = var.associate_public_ipv4_address ? [var.associate_public_ipv4_address] : []
+    iterator = associate_public_ipv4_address
+    content {
+      associate_public_ip_address = associate_public_ipv4_address.value
+      security_groups = compact(concat(
+        var.enable_managed_runner_security_group ? [aws_security_group.runner_sg[0].id] : [],
+        var.runner_additional_security_group_ids,
+      ))
+    }
+  }
 }
 
 resource "aws_security_group" "runner_sg" {
@@ -174,6 +200,8 @@ resource "aws_security_group" "runner_sg" {
   description = "Github Actions Runner security group"
 
   vpc_id = var.vpc_id
+
+  ingress = []
 
   dynamic "egress" {
     for_each = var.egress_rules

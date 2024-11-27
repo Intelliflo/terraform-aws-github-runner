@@ -1,0 +1,18 @@
+{
+  "folders": [
+    {
+      "name": "✨ root",
+      "path": ".."
+    },
+    {
+      "name": "🚀 lambdas",
+      "path": "../lambdas"
+    }
+  ],
+  "settings": {
+    "jest.autoRun": "on",
+    "jest.disabledWorkspaceFolders": [
+      "✨ root"
+    ]
+  }
+}

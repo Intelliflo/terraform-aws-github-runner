@@ -6,7 +6,7 @@ This module will create an AWS IAM role that is required to use permission bound
 
 ## Usages
 
-See below or check out [this example](../../examples/permissions-boundary/README.md)
+See below or check out [this example](https://philips-labs.github.io/terraform-aws-github-runner/examples/permissions-boundary/)
 Create a workspace and add the following terraform code.
 
 ```hcl
@@ -42,13 +42,13 @@ Next execute the created Terraform code `terraform init && terraform apply` The 
 | Name | Version |
 |------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.3.0 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 4.0 |
+| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 5.27 |
 
 ## Providers
 
 | Name | Version |
 |------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | ~> 4.0 |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | ~> 5.27 |
 
 ## Modules
 
@@ -71,8 +71,7 @@ No modules.
 |------|-------------|------|---------|:--------:|
 | <a name="input_account_id"></a> [account\_id](#input\_account\_id) | The module allows to switch to the created role from the provided account id. | `string` | n/a | yes |
 | <a name="input_aws_partition"></a> [aws\_partition](#input\_aws\_partition) | (optional) partition in the arn namespace if not aws | `string` | `"aws"` | no |
-| <a name="input_environment"></a> [environment](#input\_environment) | A name that identifies the environment, used as prefix and for tagging. | `string` | `null` | no |
-| <a name="input_namespaces"></a> [namespaces](#input\_namespaces) | The role will be only allowed to create roles, policies and instance profiles in the given namespace / path. All policies in the boundaries namespace cannot be modified by this role. | <pre>object({<br>    boundary_namespace         = string<br>    role_namespace             = string<br>    policy_namespace           = string<br>    instance_profile_namespace = string<br>  })</pre> | n/a | yes |
+| <a name="input_namespaces"></a> [namespaces](#input\_namespaces) | The role will be only allowed to create roles, policies and instance profiles in the given namespace / path. All policies in the boundaries namespace cannot be modified by this role. | <pre>object({<br/>    boundary_namespace         = string<br/>    role_namespace             = string<br/>    policy_namespace           = string<br/>    instance_profile_namespace = string<br/>  })</pre> | n/a | yes |
 | <a name="input_prefix"></a> [prefix](#input\_prefix) | The prefix used for naming resources | `string` | `"github-actions"` | no |
 
 ## Outputs

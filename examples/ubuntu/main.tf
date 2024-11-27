@@ -37,7 +37,7 @@ module "runners" {
   # runners_lambda_zip                = "lambdas-download/runners.zip"
 
   enable_organization_runners = false
-  runner_extra_labels         = "default,example"
+  runner_extra_labels         = ["default", "example"]
 
   # enable access to the runners via SSM
   enable_ssm_on_runners = true
@@ -51,13 +51,14 @@ module "runners" {
   ami_owners        = ["099720109477"] # Canonical's Amazon account ID
 
   ami_filter = {
-    name = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+    name  = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"],
+    state = ["available"]
   }
 
   # Custom build AMI, no custom userdata needed.
   # option 2: Build custom AMI see ../../images/ubuntu-focal
   #           disable lines above (option 1) and enable the ones below
-  # ami_filter = { name = ["github-runner-ubuntu-focal-amd64-*"] }
+  # ami_filter = { name = ["github-runner-ubuntu-focal-amd64-*"], state = ["available"] }
   # data "aws_caller_identity" "current" {}
   # ami_owners = [data.aws_caller_identity.current.account_id]
 
@@ -109,4 +110,16 @@ module "runners" {
 
   # Enable logging all commands of user_data, secrets will be logged!!!
   # enable_user_data_debug_logging_runner = true
+}
+
+module "webhook_github_app" {
+  source     = "../../modules/webhook-github-app"
+  depends_on = [module.runners]
+
+  github_app = {
+    key_base64     = var.github_app.key_base64
+    id             = var.github_app.id
+    webhook_secret = random_id.random.hex
+  }
+  webhook_endpoint = module.runners.webhook.endpoint
 }

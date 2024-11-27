@@ -3,8 +3,8 @@ module "runners" {
   for_each      = local.runner_config
   aws_region    = var.aws_region
   aws_partition = var.aws_partition
-  vpc_id        = var.vpc_id
-  subnet_ids    = var.subnet_ids
+  vpc_id        = coalesce(each.value.runner_config.vpc_id, var.vpc_id)
+  subnet_ids    = coalesce(each.value.runner_config.subnet_ids, var.subnet_ids)
   prefix        = "${var.prefix}-${each.key}"
   tags = merge(local.tags, {
     "ghr:environment" = "${var.prefix}-${each.key}"
@@ -31,10 +31,13 @@ module "runners" {
   ami_id_ssm_parameter_name = each.value.runner_config.ami_id_ssm_parameter_name
   ami_kms_key_arn           = each.value.runner_config.ami_kms_key_arn
 
-  sqs_build_queue                      = { "arn" : each.value.arn }
+  sqs_build_queue                      = { "arn" : each.value.arn, "url" : each.value.url }
   github_app_parameters                = local.github_app_parameters
+  ebs_optimized                        = each.value.runner_config.ebs_optimized
+  enable_on_demand_failover_for_errors = each.value.runner_config.enable_on_demand_failover_for_errors
   enable_organization_runners          = each.value.runner_config.enable_organization_runners
   enable_ephemeral_runners             = each.value.runner_config.enable_ephemeral_runners
+  enable_jit_config                    = each.value.runner_config.enable_jit_config
   enable_job_queued_check              = each.value.runner_config.enable_job_queued_check
   disable_runner_autoupdate            = each.value.runner_config.disable_runner_autoupdate
   enable_managed_runner_security_group = var.enable_managed_runner_security_group
@@ -42,15 +45,17 @@ module "runners" {
   scale_down_schedule_expression       = each.value.runner_config.scale_down_schedule_expression
   minimum_running_time_in_minutes      = each.value.runner_config.minimum_running_time_in_minutes
   runner_boot_time_in_minutes          = each.value.runner_config.runner_boot_time_in_minutes
-  runner_extra_labels                  = each.value.runner_config.runner_extra_labels
+  runner_disable_default_labels        = each.value.runner_config.runner_disable_default_labels
+  runner_labels                        = each.value.runner_config.runner_disable_default_labels ? sort(distinct(each.value.runner_config.runner_extra_labels)) : sort(distinct(concat(["self-hosted", each.value.runner_config.runner_os, each.value.runner_config.runner_architecture], each.value.runner_config.runner_extra_labels)))
   runner_as_root                       = each.value.runner_config.runner_as_root
   runner_run_as                        = each.value.runner_config.runner_run_as
   runners_maximum_count                = each.value.runner_config.runners_maximum_count
   idle_config                          = each.value.runner_config.idle_config
   enable_ssm_on_runners                = each.value.runner_config.enable_ssm_on_runners
   egress_rules                         = var.runner_egress_rules
-  runner_additional_security_group_ids = var.runner_additional_security_group_ids
+  runner_additional_security_group_ids = try(coalescelist(each.value.runner_config.runner_additional_security_group_ids, var.runner_additional_security_group_ids), [])
   metadata_options                     = each.value.runner_config.runner_metadata_options
+  credit_specification                 = each.value.runner_config.credit_specification
 
   enable_runner_binaries_syncer    = each.value.runner_config.enable_runner_binaries_syncer
   lambda_s3_bucket                 = var.lambda_s3_bucket
@@ -59,15 +64,18 @@ module "runners" {
   lambda_runtime                   = var.lambda_runtime
   lambda_architecture              = var.lambda_architecture
   lambda_zip                       = var.runners_lambda_zip
+  lambda_scale_up_memory_size      = var.scale_up_lambda_memory_size
   lambda_timeout_scale_up          = var.runners_scale_up_lambda_timeout
+  lambda_scale_down_memory_size    = var.scale_down_lambda_memory_size
   lambda_timeout_scale_down        = var.runners_scale_down_lambda_timeout
   lambda_subnet_ids                = var.lambda_subnet_ids
   lambda_security_group_ids        = var.lambda_security_group_ids
-  lambda_tracing_mode              = var.lambda_tracing_mode
+  lambda_tags                      = var.lambda_tags
+  tracing_config                   = var.tracing_config
   logging_retention_in_days        = var.logging_retention_in_days
   logging_kms_key_id               = var.logging_kms_key_id
   enable_cloudwatch_agent          = each.value.runner_config.enable_cloudwatch_agent
-  cloudwatch_config                = var.cloudwatch_config
+  cloudwatch_config                = try(coalesce(each.value.runner_config.cloudwatch_config, var.cloudwatch_config), null)
   runner_log_files                 = each.value.runner_config.runner_log_files
   runner_group_name                = each.value.runner_config.runner_group_name
   runner_name_prefix               = each.value.runner_config.runner_name_prefix
@@ -80,6 +88,7 @@ module "runners" {
 
   enable_userdata       = each.value.runner_config.enable_userdata
   userdata_template     = each.value.runner_config.userdata_template
+  userdata_content      = each.value.runner_config.userdata_content
   userdata_pre_install  = each.value.runner_config.userdata_pre_install
   userdata_post_install = each.value.runner_config.userdata_post_install
   key_name              = var.key_name
@@ -100,4 +109,11 @@ module "runners" {
   pool_lambda_timeout                        = var.pool_lambda_timeout
   pool_runner_owner                          = each.value.runner_config.pool_runner_owner
   pool_lambda_reserved_concurrent_executions = var.pool_lambda_reserved_concurrent_executions
+  associate_public_ipv4_address              = var.associate_public_ipv4_address
+
+  ssm_housekeeper = var.runners_ssm_housekeeper
+
+  job_retry = each.value.runner_config.job_retry
+
+  metrics = var.metrics
 }
