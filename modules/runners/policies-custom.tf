@@ -21,8 +21,6 @@ resource "aws_iam_role_policy" "gh_artifacts_bucket" {
           "arn:aws:s3:::dev-github-ci-loop-artifacts",
           "arn:aws:s3:::github-ci-loop-artifacts/*",
           "arn:aws:s3:::github-ci-loop-artifacts",
-          "arn:aws:s3:::dev-github-ci-loop-artifacts/*",
-          "arn:aws:s3:::dev-github-ci-loop-artifacts",
           "arn:aws:s3:::packages.shs-ie-01.intelliflo.services/*",
           "arn:aws:s3:::packages.shs-ie-01.intelliflo.services",
           "arn:aws:s3:::mssql-migrations.shs-ie-01.intelliflo.services/*",
