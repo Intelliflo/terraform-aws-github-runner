@@ -17,6 +17,8 @@ resource "aws_iam_role_policy" "gh_artifacts_bucket" {
         ]
         Effect = "Allow"
         Resource = [
+          "arn:aws:s3:::dev-github-ci-loop-artifacts/*",
+          "arn:aws:s3:::dev-github-ci-loop-artifacts",
           "arn:aws:s3:::github-ci-loop-artifacts/*",
           "arn:aws:s3:::github-ci-loop-artifacts",
           "arn:aws:s3:::dev-github-ci-loop-artifacts/*",
