@@ -14,7 +14,8 @@
         "ssm:*",
         "ssmmessages:*",
         "ec2messages:*",
-        "cloudwatch:*"
+        "cloudwatch:*",
+        "datasync:*"
       ],
       "Resource": "*"
     },

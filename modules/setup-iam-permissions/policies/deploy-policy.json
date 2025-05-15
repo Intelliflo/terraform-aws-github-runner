@@ -15,7 +15,8 @@
         "logs:*",
         "apigateway:*",
         "resource-groups:*",
-        "kms:*"
+        "kms:*",
+        "datasync:*"
       ],
       "Resource": "*"
     }
